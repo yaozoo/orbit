@@ -2,6 +2,8 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/Orbit-OpenSpec_%2B_Superpowers-blue?style=for-the-badge">
+
+![Orbit Demo](demo.gif)
   <img alt="Orbit" src="https://img.shields.io/badge/Orbit-OpenSpec_%2B_Superpowers-blue?style=for-the-badge">
 </picture>
 
