@@ -1,0 +1,163 @@
+# .orbit-state Schema — Orbit 工作流状态机字段定义
+# 版本: 1.0.0
+# 文件位置: openspec/changes/<change-id>/.orbit-state
+
+# ── 版本管理 ──────────────────────────────────────────────
+
+schema_version:
+  type: string
+  default: "1.0.0"
+  description: >
+    Orbit state schema 版本。未来升级变更结构时，通过此字段触发迁移逻辑。
+    Agent 启动时检查此版本与当前 SKILL.md 声明的兼容版本是否匹配。
+
+# ── 变更标识 ──────────────────────────────────────────────
+
+change_id:
+  type: string
+  pattern: "^[a-z][a-z0-9-]+$"   # kebab-case
+  example: "add-oauth-login"
+  description: "变更唯一标识，Stage 0 Step 0 生成"
+
+change_type:
+  type: string
+  enum: ["feature", "bugfix", "docs"]
+  description: "变更类型，决定执行路径。config 类变更归入 docs 路径。Stage 0 Step 2 写入，用户确认后不可变"
+
+preliminary:
+  type: boolean
+  default: true
+  description: >
+    Change-id 是否为初步版本。Stage 0 生成时为 true，
+    Stage 1 结束后用户确认/重命名后设为 false。
+
+# ── 阶段状态 ──────────────────────────────────────────────
+
+stage:
+  type: integer
+  range: [0, 5]
+  description: "当前阶段编号。特殊值：5 且 substage=complete 表示已完成"
+  values:
+    0: "Bootstrap — 初始化、环境探测、类型分类"
+    1: "Explore & Design — brainstorming 设计文档"
+    2: "Specify — 生成 OpenSpec 制品"
+    3: "Plan — writing-plans 实现计划"
+    4: "Implement — TDD + subagent + review + 回滚"
+    5: "Verify & Complete — 验证 + 归档 + Git 收尾"
+
+substage:
+  type: string
+  description: "阶段内子状态，用于细粒度断点续传"
+  examples:
+    - "id_confirmation"        # Stage 1→2 时的 change-id 确认
+    - "bridging"               # Stage 2 初始桥接中
+    - "approach_analysis"      # Stage 2 方案分析（条件触发）
+    - "ready_for_plan"         # Stage 2 完成，待进入 Stage 3
+    - "implementing"           # Stage 4 执行中
+    - "review_paused_task_N"   # Stage 4 review 模式暂停
+    - "verifying"              # Stage 5 验证中
+    - "archiving"              # Stage 5 归档中
+    - "spec_gap"               # Stage 4 发现 spec 缺陷，回退 Stage 2
+    - "complete"               # 全流程完成
+
+# ── Stage 4 专用 ─────────────────────────────────────────
+
+commit_mode:
+  type: string
+  enum: ["auto", "review"]
+  default: "auto"
+  description: >
+    Stage 4 提交模式。auto: 每个 Task 自动提交。review: 每个 Task 完成后展示摘要等待确认。
+    在 Stage 4 首个 Task 开始前由用户选择。
+
+current_task:
+  type: integer
+  default: 0
+  description: "Stage 4 当前执行的 Task 索引（1-based）"
+
+total_tasks:
+  type: integer
+  default: 0
+  description: "Stage 4 Task 总数，从 tasks.md 解析"
+
+task_history:
+  type: array
+  items:
+    type: object
+    properties:
+      task:
+        type: integer
+        description: "Task 编号"
+      commit:
+        type: string
+        description: "Task 完成后的 commit hash"
+      status:
+        type: string
+        enum: ["done", "done_with_concerns", "failed"]
+      notes:
+        type: string
+        description: "Subagent 提出的关注点（仅 status=done_with_concerns 时有值）"
+      rollback_to:
+        type: string
+        description: "回滚目标 commit hash（仅 status=failed 时有值）"
+
+hotfix_queue:
+  type: array
+  items:
+    type: object
+    properties:
+      source_task:
+        type: integer
+        description: "发现 bug 的来源 Task 编号"
+      description:
+        type: string
+        description: "bug 描述"
+      discovered_at_task:
+        type: integer
+        description: "在哪个 Task 执行期间发现"
+
+# ── 环境信息 ──────────────────────────────────────────────
+
+test_cmd:
+  type: string
+  default: ""
+  description: "项目测试命令，Stage 0 Step 1 自动探测（如 pnpm test）"
+
+branch_name:
+  type: string
+  default: ""
+  description: "Git 分支名。Stage 1 结束后根据 change-id 生成。格式: <type>/<change-id>"
+
+# ── 方案分析 ──────────────────────────────────────────────
+
+selected_approach:
+  type: string
+  default: ""
+  description: >
+    Stage 2 方案分析阶段用户选定的实现方案标识。当 approach_analysis 触发且用户做出选择后写入。
+    值为 "A" / "B" / "C" 或用户自定义方案的简要描述。用于断点续传时恢复上下文。
+    当 Step 3 被跳过（简单变更）时，此字段为空。
+
+# ── 制品路径引用 ──────────────────────────────────────────
+
+design_doc:
+  type: string
+  description: "Brainstorming 产出的设计文档路径"
+  example: "docs/superpowers/specs/2026-07-16-oauth-design.md"
+
+plan_doc:
+  type: string
+  description: "Writing-plans 产出的计划文档路径"
+  example: "docs/superpowers/plans/2026-07-16-oauth-plan.md"
+
+# ── 时间戳 ────────────────────────────────────────────────
+
+created_at:
+  type: string
+  format: "ISO 8601 with timezone"
+  example: "2026-07-16T10:00:00+08:00"
+
+updated_at:
+  type: string
+  format: "ISO 8601 with timezone"
+  example: "2026-07-16T14:30:00+08:00"
