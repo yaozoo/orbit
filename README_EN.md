@@ -72,6 +72,7 @@ No install command. No environment requirements. Works on any AI coding tool tha
 ### 2. State-Persistent. Never Lose Context.
 
 Every change maintains a YAML state file at `openspec/changes/<change-id>/.orbit-state` tracking the current stage, substage, task progress, and commit history. **Session crashed? Type "continue" and resume exactly where you left off.**
+State is written only at meaningful checkpoints (e.g. Stage 0 writes one complete state only after the change type is settled — never a half-written file).
 
 ### 3. Mandatory Human Review Gate
 
@@ -86,6 +87,7 @@ Complex changes trigger a pre-spec analysis showing 2–3 implementation approac
 ### 5. Atomic Rollback
 
 Stage 4 commits each task independently. Review fails? `git reset --hard` + `git clean -fd` roll back to the last clean state. No messy git history.
+Each task records its pre-task HEAD (`rollback_base`) as the rollback anchor; review failure resets to that exact commit (old commits stay in reflog). The whole implementation phase also has a `stage4_baseline_commit` as Task 1's fallback anchor.
 
 ### 6. Cross-Tool, One Skill
 
@@ -97,6 +99,7 @@ Stage 4 commits each task independently. Review fails? `git reset --hard` + `git
 | **Windsurf** | "use Orbit" in natural language | `.windsurfrules` |
 
 If a sub-skill file isn't available in a particular tool, Orbit provides inline fallback instructions.
+All sub-skills (including Stage 5's `openspec-verify-change` / `openspec-archive-change` and the `openspec status/verify/archive` CLI) have inline fallbacks, so the pipeline rarely dead-ends.
 
 ### 7. Spec Gap Detection
 
@@ -117,8 +120,8 @@ docs:     0 ────────→ 2 ────────────�
 | Stage | Name | What Happens | Applies To |
 |-------|------|-------------|-----------|
 | **Stage 0** | Bootstrap | Generate change-id, detect test command, classify type | all |
-| **Stage 1** | Explore & Design | Brainstorming → design doc → confirm change-id | feature |
-| **Stage 2** | Specify | Approach analysis (optional) → OpenSpec artifacts → **review gate** | all |
+| **Stage 1** | Explore & Design | Brainstorming → design doc → finalize change-id (smart-gated: auto-pass if still fits, propose rename only if scope drifted) | feature |
+| **Stage 2** | Specify | Approach analysis (optional) → OpenSpec artifacts (docs lightweight: proposal only) → **review gate** | all |
 | **Stage 3** | Plan | Break into bite-sized tasks → tasks.md | feature, bugfix |
 | **Stage 4** | Implement | TDD per task + spec compliance + auto commit/rollback | feature, bugfix |
 | **Stage 5** | Verify & Complete | Run tests → archive → branch cleanup | all |
@@ -192,12 +195,13 @@ You: /orbit add OAuth login to the system
 
 Orbit:
   Stage 0: change-id "add-oauth-login", classified as feature
-  → auto-checkout branch feature/add-oauth-login
+  → type unambiguous, auto-confirm feature (no manual pick)
+  → write .orbit-state, auto-checkout branch feature/add-oauth-login
 
   Stage 1: brainstorming kicks in
   → 2-3 rounds of clarifying questions
   → produces design doc: docs/superpowers/specs/2026-07-17-oauth-design.md
-  → confirm or rename change-id
+  → finalize change-id (auto-pass if still fits, propose rename only if scope drifted)
   → [ORBIT_CHECKPOINT: Stage 1 complete]
 
   Stage 2: generate OpenSpec artifacts
@@ -236,6 +240,7 @@ You: Use Orbit to fix the payment validation bug — $0 amounts pass through
 
 Orbit:
   Stage 0: change-id "fix-payment-validation", classified as bugfix
+  → type unambiguous, auto-confirm bugfix (no manual pick)
   → skip Stage 1 (no design doc needed)
 
   Stage 2: approach analysis triggers automatically
@@ -266,6 +271,7 @@ Orbit:
   → skip Stage 1 (design), Stage 3 (planning), Stage 4 (implementation)
 
   Stage 2: extract from your description, generate OpenSpec artifacts
+  → docs lightweight: proposal.md only, skip design.md / specs
   → 🚧 Human Review Gate
 
   Stage 5: verify → archive → branch cleanup
@@ -378,7 +384,11 @@ OpenSpec's proposal covers only Stage 2 artifact generation. Orbit covers the en
 
 **Q: What if my project doesn't have Superpowers skills?**
 
-Orbit ships inline fallback instructions for every sub-skill. Even if a particular Superpowers SKILL.md is absent, Orbit completes the stage using its built-in directives.
+Orbit ships inline fallback instructions for every sub-skill (brainstorming, writing-plans, TDD, subagent-driven-development, systematic-debugging, verification, finishing-branch, plus Stage 5's openspec-verify/archive). Even if a particular Superpowers SKILL.md is absent, Orbit completes the stage using its built-in directives.
+
+**Q: Do I have to pick a change type and confirm the Change ID every time?**
+
+No. Stage 0 classifies by keyword — explicit "add/implement" → feature, "fix/bug" → bugfix, "docs/config" → docs. When a single type matches with no conflict, it auto-confirms and skips the picker; only conflicting or missing keywords prompt you. Stage 1's Change ID works the same way: if the id still accurately describes the change after brainstorming, it auto-passes; a rename is proposed only when the scope has drifted.
 
 **Q: Can I run multiple Orbit changes simultaneously in the same project?**
 
