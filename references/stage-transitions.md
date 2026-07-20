@@ -10,7 +10,7 @@
 |-------|-------------|
 | 0 | 无（纯 Orbit 逻辑） |
 | 1 | `brainstorming` |
-| 2 | 无（Orbit 内部逻辑：条件触发方案分析 → 写制品 → 审阅 Gate。仅用 `openspec status` CLI 校验。详见 SKILL.md Stage 2 Step 3） |
+| 2 | 无（Orbit 内部逻辑：条件触发方案分析 → 写制品 → 审阅 Gate。仅用 `openspec status` CLI 校验。详见 SKILL.md Stage 2 Steps 3–6：Step 3 方案分析 / Step 4 写制品 / Step 5 校验 / Step 6 审阅 Gate） |
 | 3 | `writing-plans` |
 | 4 | `subagent-driven-development`, `test-driven-development`, `systematic-debugging` |
 | 5 | `verification-before-completion`, `openspec-verify-change`, `openspec-archive-change`, `finishing-a-development-branch` |

@@ -17,19 +17,21 @@ change_id:
   type: string
   pattern: "^[a-z][a-z0-9-]+$"   # kebab-case
   example: "add-oauth-login"
-  description: "变更唯一标识，Stage 0 Step 0 生成"
+  description: "变更唯一标识，Stage 0 Step 1 生成（内存中），Step 4 落盘到 .orbit-state"
 
 change_type:
   type: string
   enum: ["feature", "bugfix", "docs"]
-  description: "变更类型，决定执行路径。config 类变更归入 docs 路径。Stage 0 Step 2 写入，用户确认后不可变"
+  description: "变更类型，决定执行路径。config 类变更归入 docs 路径。Stage 0 Step 3 分类（explicit 自动确认；ambiguous/unknown 需用户确认），Step 4 一次性写入 .orbit-state，确认后不可变"
 
 preliminary:
   type: boolean
   default: true
   description: >
-    Change-id 是否为初步版本。Stage 0 生成时为 true，
-    Stage 1 结束后用户确认/重命名后设为 false。
+    Change-id 是否为初步（可被 Stage 1 brainstorming 重命名）版本。
+    Stage 0 Step 4 按类型写入：feature → true（id 待 Stage 1 定稿）；
+    bugfix / docs → false（无 Stage 1，id 在 Stage 0 即定稿）。
+    仅当 preliminary=true 时，工作流被限制在 Stage 0↔Stage 1；Stage 2+ 须待 Stage 1 将其置 false 后方可推进。
 
 # ── 阶段状态 ──────────────────────────────────────────────
 
@@ -49,7 +51,7 @@ substage:
   type: string
   description: "阶段内子状态，用于细粒度断点续传"
   examples:
-    - "id_confirmation"        # Stage 1→2 时的 change-id 确认
+    - "id_finalization"        # Stage 1→2 时的 change-id 定稿（smart-gated：id 吻合自动放行，范围漂移才改名）
     - "bridging"               # Stage 2 初始桥接中
     - "approach_analysis"      # Stage 2 方案分析（条件触发）
     - "ready_for_plan"         # Stage 2 完成，待进入 Stage 3
@@ -73,12 +75,19 @@ commit_mode:
 current_task:
   type: integer
   default: 0
-  description: "Stage 4 当前执行的 Task 索引（1-based）"
+  description: "Stage 4 已完成的 Task 数（0 表示尚未开始任何 Task）。Stage 4 Step 6 在每个 Task 完成后 +1，故它指向"下一个待执行 Task"的前一个；当前正在执行的 Task = current_task + 1。"
 
 total_tasks:
   type: integer
   default: 0
   description: "Stage 4 Task 总数，从 tasks.md 解析"
+
+stage4_baseline_commit:
+  type: string
+  default: ""
+  description: >
+    Stage 4 pre-flight 记录的基线 commit（per-task loop 开始前的 git rev-parse HEAD）。
+    作为 Task 1 的 rollback_base，即整个实现阶段的初始回滚锚点。若 Task 1 失败，回滚到此处。
 
 task_history:
   type: array
@@ -90,7 +99,12 @@ task_history:
         description: "Task 编号"
       commit:
         type: string
-        description: "Task 完成后的 commit hash"
+        description: "Task 完成后的 commit hash（Stage 4 Step 6 写入，即该 Task 的最终提交）"
+      rollback_base:
+        type: string
+        description: >
+          Task 开始前的 HEAD（Stage 4 Step 1 写入），即本 Task 失败时的回滚目标。
+          Task 1 的 rollback_base 等于 stage4_baseline_commit；Task N>1 的 rollback_base 等于 task_history[N-1].commit。
       status:
         type: string
         enum: ["done", "done_with_concerns", "failed"]
@@ -99,7 +113,7 @@ task_history:
         description: "Subagent 提出的关注点（仅 status=done_with_concerns 时有值）"
       rollback_to:
         type: string
-        description: "回滚目标 commit hash（仅 status=failed 时有值）"
+        description: "回滚实际执行的目标 commit hash（仅 status=failed 时有值，值等于本条目的 rollback_base）"
 
 hotfix_queue:
   type: array
@@ -126,7 +140,7 @@ test_cmd:
 branch_name:
   type: string
   default: ""
-  description: "Git 分支名。Stage 1 结束后根据 change-id 生成。格式: <type>/<change-id>"
+  description: "Git 分支名。Stage 0 Step 4 根据 change-type + change-id 生成（格式: <type>/<change-id>）。feature 在 Stage 1 改名时随之更新；bugfix/docs 在 Stage 0 即定稿不再变。"
 
 # ── 方案分析 ──────────────────────────────────────────────
 

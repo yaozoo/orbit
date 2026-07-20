@@ -70,6 +70,7 @@ If the user says "继续" or "continue" without a new change request:
 4. **Integrity check**: Before resuming, verify that artifacts referenced by `.orbit-state` still exist:
    - If `stage >= 3`: check that `openspec/changes/<id>/tasks.md` exists
    - If `stage == 4`: check that `.orbit-state.plan_doc` path exists
+   - If `stage == 0`: the change was finalized (id + type written) but Stage 0 never transitioned out — read `.orbit-state.change_type` and take the Stage 0 **Transition** directly (feature → Stage 1; bugfix/docs → Stage 2). No artifacts to verify at Stage 0.
    - If any check fails: output `[ORBIT_RESUME_WARNING] 状态文件引用的制品缺失: {missing}` and ask user:
      ```
      请选择：
@@ -93,29 +94,39 @@ If the user says "继续" or "continue" without a new change request:
 
 ## Stage 0: Bootstrap
 
-**Goal**: Create change directory, detect environment, classify change type.
+**Goal**: Classify change type, detect environment, then create change directory and persist state once.
+
+**Design principle**: Confirm WHAT (change type) before recording HOW (state file). The `.orbit-state` is written a single time, after `change_type` is settled, so Stage 0 never produces a partial/intermediate state. If the conversation is interrupted during classification, no state file exists yet — the user simply re-invokes `/orbit`, which is the correct behavior since nothing durable was committed yet.
 
 **Steps**:
 
-1. **Generate change-id**: Parse user request → `<verb>-<noun>` (e.g., `add-oauth-login`). If ambiguous, use `change-YYYYMMDD-NNN`. Validate kebab-case. Conflict check with `ls openspec/changes/`. Create `openspec/changes/<change-id>/` directory.
+1. **Generate change-id (in memory only)**: Parse user request → `<verb>-<noun>` (e.g., `add-oauth-login`). If ambiguous, use `change-YYYYMMDD-NNN`. Validate kebab-case. Conflict check with `ls openspec/changes/`. Do **not** create the directory yet — that happens in Step 4 after the type is settled.
 
-2. **Write initial .orbit-state**: Set `change_id`, `schema_version: "1.0.0"`, `preliminary: true`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
-   When `preliminary: true`, the workflow is restricted to Stage 0 ↔ Stage 1 only. Stage 2 and beyond cannot proceed until Stage 1 completes and `preliminary` is set to `false`.
-
-3. **Detect test command**: 
+2. **Detect test command** (does not depend on change type):
    *Prefer headless (CI-compatible) test scripts.* Check `package.json` for
    `test:unit` or `test:ci` first. If not found, fall back to `scripts.test`.
    If the detected script starts a dev server (e.g., `vite`), search for
    headless alternatives in sub-package scripts. Also check `pyproject.toml`
    → `pytest`, `Cargo.toml` → `cargo test`, `go.mod` → `go test ./...`,
-   `Makefile` → `make test`. If none match, ask user. Write to `.orbit-state.test_cmd`.
+   `Makefile` → `make test`. If none match, ask user. Hold the result in memory
+   for the single state write in Step 4.
 
-4. **Classify change type**: Keywords → type mapping:
+3. **Classify change type (tri-state)**: Scan the user's request against the keyword map:
+
    - `新增/添加/实现/重构/开发/做` → `feature`
    - `修复/修/bug/fix` → `bugfix`
    - `文档/README/Dockerfile/配置/注释` → `docs`
-   
-   **Show classification with reasoning** and require user confirmation:
+
+   Evaluate the signal strength:
+
+   - **Explicit** — exactly one type's keywords match, and no keyword from another type is present. Auto-confirm, skip the prompt, go straight to Step 4.
+   - **Ambiguous** — keywords from more than one type match (e.g., "修复这个新增功能的 bug" hits both `修复` and `新增`), or the request is clearly about a change type but the keyword signal is weak. Show the classification with reasoning and require user confirmation (see prompt below).
+   - **Unknown** — no keyword matches. Go straight to the confirmation prompt and let the user pick.
+
+   **On auto-confirm (explicit)**, output a single-line notice and continue without waiting:
+   > "识别为 **{type}** 变更（匹配关键词：{keywords}）。执行路径：{route summary}。继续。"
+
+   **On ambiguous / unknown**, show the classification and require user confirmation:
    > "识别为 **{type}** 变更（匹配关键词：{keywords}）。
    >  执行路径：{route summary}。
    >  请选择变更类型：
@@ -123,12 +134,14 @@ If the user says "继续" or "continue" without a new change request:
    >  2. bugfix — 缺陷修复，跳过 Stage 1，走 0→2→3→4→5
    >  3. docs — 文档变更，走 0→2→5 轻量流程
    >  4. 自定义类型 — 手动指定类型（需说明理由）"
+   Wait for the user's selection before proceeding to Step 4.
 
-5. Write `change_type` to `.orbit-state`. Generate `branch_name` as `<type>/<change-id>` and write to `.orbit-state.branch_name` (e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`).
+4. **Create directory and write .orbit-state once**: Now that `change_id` and `change_type` are both settled:
+   - `mkdir -p openspec/changes/<change-id>/`
+   - Write a single complete `.orbit-state` in one pass with: `change_id`, `schema_version: "1.0.0"`, `change_type`, `branch_name` (generated as `<type>/<change-id>`, e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`), `test_cmd` (from Step 2), `preliminary`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
+   - `preliminary` is set by type: **feature** → `true` (the id is provisional until Stage 1 brainstorming may refine it; `preliminary: true` restricts the workflow to Stage 0 ↔ Stage 1, and Stage 2+ cannot proceed until Stage 1 finalizes the id and sets `preliminary: false`); **bugfix / docs** → `false` (no Stage 1, so the id is already final at Stage 0 and the workflow may proceed straight to Stage 2).
 
 **Transition**: If `feature` → Stage 1. If `bugfix` or `docs` → Stage 2.
-
----
 
 ## Stage 1: Explore & Design
 
@@ -148,9 +161,22 @@ If the user says "继续" or "continue" without a new change request:
 4. At brainstorming's terminal state, output `[ORBIT_CHECKPOINT: Stage 1 complete]`
 
 5. **Orbit takes over**:
-   - Update `.orbit-state`: `stage: 2, substage: id_confirmation`
-  - Ask user: "Change ID 为 `{id}`，是否保留？（输入新 ID 可重命名）"
-   - If renamed: `mv openspec/changes/<old>/ openspec/changes/<new>/`, update `.orbit-state.change_id`, update `.orbit-state.branch_name` to `feature/<new-id>`
+   - Update `.orbit-state`: `stage: 2, substage: id_finalization`
+
+   **Finalize change-id (smart-gated, not blanket-asked)**:
+   The change-id was generated at Stage 0 from the initial (often vague) request. Brainstorming in Stage 1 can materially shift what the change is *about* — and this transition is the cheapest place to rename, because once Stage 2 writes artifacts the id becomes a directory/branch/reference key that is expensive to rewrite. So instead of asking every time, self-assess whether the id still fits:
+
+   - **Still fits** — the verb-noun still accurately describes the refined change (the common case, since brainstorming refines but rarely inverts the subject). Auto-confirm, do not block. Output a one-line notice and proceed immediately:
+     > "[ORBIT] Change ID: `{id}`（如需改名，现在说，否则继续进入 Stage 2）"
+   - **Scope shifted** — brainstorming revealed the change is really about something different than the Stage 0 id suggests (different verb, different noun, or materially narrower/wider scope). Proactively propose a better id and block for one short confirmation:
+     > "Stage 1 后理解发生变化，建议 Change ID 由 `{old}` 改为 `{proposed}`。
+     >  1. 接受建议 — 使用 `{proposed}`
+     >  2. 保留原 ID — 仍用 `{old}`
+    >  3. 自定义 — 输入新 ID"
+    On rename: `mv openspec/changes/<old>/ openspec/changes/<new>/`, update `.orbit-state.change_id`, and update `.orbit-state.branch_name` to `<type>/<new-id>` (derive the type prefix from `.orbit-state.change_type`, not a hardcoded `feature/`).
+
+   The Stage 2 review gate (option 2 "修改文件") remains the safety net — a rename requested there is still cheap because artifacts were just written and references stay local to the change directory.
+
    - Set `preliminary: false`
    - Write `design_doc` path (from brainstorming output) to `.orbit-state.design_doc`
 
@@ -222,10 +248,10 @@ If the user says "继续" or "continue" without a new change request:
 
 4. **Write OpenSpec artifacts** using the bridge rules in `references/bridge-rules.md`.
    Read change-id from `.orbit-state.change_id` and substitute into proposal.md title (`# Proposal: <change-id>`):
-   If Step 3 was triggered, artifacts must reflect the selected approach:
+   If Step 3 was triggered, artifacts must reflect the selected approach. Artifact set varies by change type:
    - `openspec/changes/<change-id>/proposal.md` — Why / What Changes / Impact
-   - `openspec/changes/<change-id>/design.md` — Architecture / Data Flow
-   - `openspec/changes/<change-id>/specs/<capability>/spec.md` — EARS-format requirements
+   - `feature` / `bugfix` — `design.md` (Architecture / Data Flow) + `specs/<capability>/spec.md` (EARS-format requirements). bugfix 的 spec 描述"修复后应满足的正确行为"。
+   - `docs` — 默认仅 `proposal.md`，跳过 `design.md` 与 `specs/`（纯文档/配置变更通常无 EARS 行为契约）。仅当文档变更隐含一条可验证的行为契约时才补 `specs/`，此时 `design.md` 仍可省略。详见 bridge-rules "Docs → proposal.md（轻量）"。
 
 5. Validate: run `openspec status --change "<id>" --json`
 
@@ -355,14 +381,23 @@ Before the first task, require user to choose commit mode:
 ```
 Write choice to `.orbit-state.commit_mode`.
 
+### Pre-flight: Record Stage 4 Baseline
+
+Immediately before the per-task loop begins, capture the current HEAD as the Stage 4 rollback baseline:
+```
+git rev-parse HEAD → .orbit-state.stage4_baseline_commit
+```
+This is the rollback anchor for Task 1 (and the whole implementation phase). Every per-task `rollback_base` chains off it: Task 1's `rollback_base` == `stage4_baseline_commit`; Task N>1's `rollback_base` == `task_history[N-1].commit`.
+
 ### Per-Task Loop
 
 For each task (1..total_tasks, sequential):
 
 **Step 1 — Record Rollback Point**:
 ```
-git rev-parse HEAD → append to .orbit-state.task_history
+git rev-parse HEAD → write to .orbit-state.task_history[N].rollback_base
 ```
+This is the pre-task HEAD — the exact commit a failed Task N would reset to. (For Task 1 it equals `stage4_baseline_commit`; the explicit write keeps the per-task target self-contained for resume.)
 
 **Step 2 — Dispatch Implementer Subagent**:
 **Execute subagent-driven-development** (load skill or use inline fallback — see Tool Compatibility) with task instructions. The subagent receives:
@@ -425,6 +460,7 @@ Subagent output handling:
 
 **Step 6 — Orbit Sync**:
 - Update `tasks.md` checkbox: `- [ ]` → `- [x]`
+- `git rev-parse HEAD → write to .orbit-state.task_history[N].commit` (the post-task commit hash produced by Step 2's commit)
 - Update `.orbit-state.task_history[N].status = done`
 - `.orbit-state.current_task += 1`
 
@@ -439,15 +475,15 @@ When rollback is triggered (review failure or user chooses option 2):
    ```
 2. User confirmation:
    ```
-   Task N 未通过 review。将回滚到 Task N-1 的提交点。
+Task N 未通过 review。将回滚到 Task N 开始前的提交点（rollback_base）。
    将丢弃 <N> 个已修改文件和 <M> 个未跟踪文件。
 
    请选择：
    1. 继续 — 执行回滚，丢弃当前 Task 的所有变更
    2. 放弃 — 不回滚，保留当前状态供手动检查
    ```
-3. Execute: `git reset --hard <prev_commit>` + `git clean -fd`
-4. Mark `.orbit-state.task_history[N].status = failed`, `.rollback_to = <prev_commit>`
+3. Execute: `git reset --hard <task_history[N].rollback_base>` + `git clean -fd`
+4. Mark `.orbit-state.task_history[N].status = failed`, `.rollback_to = task_history[N].rollback_base`
 5. Pause for user decision: retry task / skip task / terminate Stage 4
 
 **NEVER use `git stash`**. Rollback uses `reset --hard` + `clean -fd` with user confirmation before clean.
@@ -595,20 +631,26 @@ When a sub-skill file is not available, execute the following inline workflows:
 **verification-before-completion** (Stage 5):
 > Run the test command from `.orbit-state.test_cmd`. Confirm all tests pass. Check for: uncommitted changes, incomplete TODOs, debug code left behind. Report status.
 
+**openspec-verify-change** (Stage 5):
+> Verify the implemented code against the OpenSpec specs in `openspec/changes/<change-id>/specs/<capability>/spec.md`. For each `### Requirement:` and its `#### Scenario:` (GIVEN/WHEN/THEN), check whether the implementation satisfies it. Report any requirement that the code does not fulfill, citing the spec requirement and the file/function where the gap is. If `openspec verify` CLI is available, prefer it; otherwise perform the manual spec-vs-code trace above.
+
+**openspec-archive-change** (Stage 5):
+> Archive the change: move the delta specs from `openspec/changes/<change-id>/specs/` into the main `openspec/specs/<capability>/spec.md` (merge ADDED requirements into the live spec), mark the change as archived, and confirm `openspec/changes/<change-id>/` no longer needs active tracking. If `openspec archive` CLI is available, prefer it; otherwise perform the merge manually: append each `### Requirement:` block from the change's delta spec into the corresponding main spec file (creating the capability file if absent), then leave the change directory in place as an audit record. Report what was merged where.
+
 **finishing-a-development-branch** (Stage 5):
 > Ensure the correct branch is checked out (from `.orbit-state.branch_name`). Determine integration strategy: merge to main, rebase, or squash-merge based on project conventions. Check for merge conflicts. If clean, proceed with merge. If conflicts, resolve them. Delete the feature branch after merge if project convention requires it.
 
 ### OpenSpec CLI Fallback
 
-When Orbit instructs `openspec status --change "<id>" --json`:
-- If `openspec` CLI is installed: run it as instructed.
-- If not installed: manually execute the following validation checklist:
+When Orbit instructs an `openspec` CLI command (`openspec status`, `openspec verify`, or `openspec archive`):
+- If the `openspec` CLI is installed: run it as instructed.
+- If not installed: use the inline fallback for the corresponding skill (`verification-before-completion` already covers `test_cmd`; `openspec-verify-change` and `openspec-archive-change` inline fallbacks above cover verify and archive respectively). For `openspec status` specifically, fall back to this validation checklist:
   1. Confirm `openspec/changes/<change-id>/` directory structure is complete
   2. Confirm `proposal.md` contains `## Why`, `## What Changes`, `## Impact` sections
-  3. Confirm `specs/<capability>/spec.md` contains `## ADDED Requirements` and at least one `### Requirement:`
+  3. Confirm `specs/<capability>/spec.md` contains `## ADDED Requirements` and at least one `### Requirement:` — **required for `feature` and `bugfix`; for `docs` this is optional/skipped** (docs changes default to proposal.md only; see Stage 2 Step 4 and bridge-rules "Docs → proposal.md（轻量）")
   4. Confirm each `### Requirement:` has at least one `#### Scenario:` with GIVEN/WHEN/THEN
   5. Confirm spec files use valid EARS format (each requirement has a priority and description)
-  6. Confirm capabilities referenced in `proposal.md` have corresponding `specs/<capability>/spec.md` files
+  6. Confirm capabilities referenced in `proposal.md` have corresponding `specs/<capability>/spec.md` files — **for `docs`, if no specs were written, skip this check**
   Report any validation failures with specific file and section references.
 
 ### Tool-Specific Setup
