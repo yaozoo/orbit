@@ -154,7 +154,7 @@ If the user says "继续" or "continue" without a new change request:
 
 4. **Create directory and write .orbit-state once**: Now that `change_id` and `change_type` are both settled:
    - `mkdir -p openspec/changes/<change-id>/`
-   - Write a single complete `.orbit-state` in one pass with: `change_id`, `schema_version: "1.0.0"`, `change_type`, `branch_name` (generated as `<type>/<change-id>`, e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`), `test_cmd` (from Step 2), `preliminary`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
+   - Write a single complete `.orbit-state` in one pass with: `change_id`, `schema_version: "1.0.0"`, `change_type`, `branch_name` (generated as `<type>/<change-id>`, e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`), `origin_branch` (captured from `git branch --show-current`), `test_cmd` (from Step 2), `preliminary`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
    - `preliminary` is set by type: **feature** → `true` (the id is provisional until Stage 1 brainstorming may refine it; `preliminary: true` restricts the workflow to Stage 0 ↔ Stage 1, and Stage 2+ cannot proceed until Stage 1 finalizes the id and sets `preliminary: false`); **bugfix / docs** → `false` (no Stage 1, so the id is already final at Stage 0 and the workflow may proceed straight to Stage 2).
 
 **Transition**: If `feature` → Stage 1. If `bugfix` or `docs` → Stage 2.
@@ -594,12 +594,31 @@ If a bug reveals a spec defect (not an implementation error):
 
 6. **Execute finishing-a-development-branch** (load skill or use inline fallback — see Tool Compatibility):
    - Read `.orbit-state.branch_name`
+   - Read `.orbit-state.origin_branch`
    - Check if branch exists: `git show-ref --verify --quiet refs/heads/{branch_name}`
      - If exists & differs from current branch → `git checkout {branch_name}` (pause if current branch has uncommitted changes)
      - If exists & is current branch → proceed
      - If not exists → `git checkout -b {branch_name}` (create from current HEAD)
-   - Then load the skill directly
-   - Note: `finishing-a-development-branch` auto-detects the current branch via `git rev-parse`; there is no parameter-passing interface. Orbit must ensure the correct branch is checked out beforehand.
+   - **Base branch routing**:
+     - If `origin_branch` is `main` or `master` → delegate to `finishing-a-development-branch` skill normally (its auto-detection of base branch via `git merge-base` will be correct).
+     - If `origin_branch` is something else (e.g., another feature branch like `feature/xxx`) → Orbit handles merge directly. `finishing-a-development-branch` hardcodes `git merge-base HEAD main/master` which would detect the wrong target. Orbit bypasses it:
+       1. `git checkout {origin_branch}`
+       2. `git merge {branch_name}`
+       3. `git branch -d {branch_name}`
+       4. Output:
+          ```
+          [ORBIT] 合并完成: {branch_name} → {origin_branch}
+          
+          ✓ 验证通过
+          ✓ 制品已归档
+          
+          后续操作：
+          1. Push — git push origin {origin_branch}
+          2. 保留当前状态 — 不做任何操作
+          
+          [ORBIT] Stage 5 完成 ✓
+          ```
+   - Note: `finishing-a-development-branch` auto-detects the current branch via `git rev-parse`; there is no parameter-passing interface. Orbit must ensure the correct branch is checked out beforehand. When `origin_branch` is non-standard (not main/master), Orbit bypasses `finishing-a-development-branch` for the merge step to avoid base-branch detection errors.
 
 7. Update `.orbit-state`: `substage: complete`
 

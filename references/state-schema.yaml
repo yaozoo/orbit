@@ -132,6 +132,14 @@ hotfix_queue:
 
 # ── 环境信息 ──────────────────────────────────────────────
 
+origin_branch:
+  type: string
+  default: ""
+  description: >
+    Orbit 启动时用户所在的分支名（git branch --show-current）。Stage 0 Step 4 记录，此后不变。
+    用于 Stage 5 判断合并目标：若为 main/master 则委托给 finishing-a-development-branch；
+    若为其他分支（如 feature-xxx）则 Orbit 自行处理合并，避免 finishing-a-development-branch 的 base 检测偏差。
+
 test_cmd:
   type: string
   default: ""
