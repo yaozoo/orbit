@@ -32,7 +32,21 @@ Orbit 将 OpenSpec（变更制品管理）和 Superpowers（开发质量实践�
 
 **状态更新规则**：每次写入 `.orbit-state` 时，同步更新 `updated_at` 时间戳。遵循"先写状态，再执行桥接"原则——确保即使桥接失败或对话中断，状态文件已记录最新进度。
 
-完整设计文档：[docs/superpowers/specs/2026-07-16-orbit-workflow-design.md](docs/superpowers/specs/2026-07-16-orbit-workflow-design.md)
+## Quick Reference
+
+| 场景 | 位置 | 关键决策点 |
+|------|------|-----------|
+| 确定变更类型 | [Stage 0](#stage-0-bootstrap) — Step 3 | feature / bugfix / docs → 路由表 → 不同阶段路径 |
+| 方案分析触发 | [Stage 2](#stage-2-specify) — Step 3 | 3+ 架构决策 \| 5+ 文件跨模块 \| 新依赖 → 展示方案 |
+| 制品审阅 Gate | [Stage 2](#stage-2-specify) — Step 6 | 阻塞式，不可跳过，需用户确认 |
+| 断点续传 | [Resume](#resume-断点续传) | 扫描 `.orbit-state` → 完整性校验 → 跳转 |
+| 提交模式选择 | [Stage 4](#pre-flight-commit-mode-selection) | auto（自动提交）/ review（逐任务确认） |
+| 任务清单确认 | [Stage 4](#pre-flight-task-list-confirmation-gate) | 阻塞式 Gate，解析 tasks.md 后展示 |
+| 回滚流程 | [Stage 4](#atomic-rollback) | reset --hard + clean -fd（需用户两次确认） |
+| 状态完整性 | [Self-Check](#self-check-pre-action-guard) — Integrity Check | preliminary guard \| tasks.md 存在 \| plan_doc/current_task 一致性 |
+| 桥接规则 | `references/bridge-rules.md` | 制品格式转换（设计文档 → proposal/design/spec） |
+| 状态字段定义 | `references/state-schema.yaml` | `.orbit-state` 所有字段的类型和约束 |
+| 阶段转换拦截 | `references/stage-transitions.md` | 合法 skill 映射 + 终端跳转拦截 + 异常回退 |
 
 ---
 
@@ -68,7 +82,9 @@ If the user says "继续" or "continue" without a new change request:
 2. If one found: auto-resume from that stage
 3. If multiple found: list and let user choose
 4. **Integrity check**: Before resuming, verify that artifacts referenced by `.orbit-state` still exist:
+   - **preliminary guard**: If `stage >= 2` and `preliminary == true`: output `[ORBIT_RESUME_WARNING] stage={stage} but preliminary=true — Stage 1 never finalized the change-id.` and offer: (1) re-run Stage 1 brainstorming to finalize, (2) manually set `preliminary: false` and proceed at own risk.
    - If `stage >= 3`: check that `openspec/changes/<id>/tasks.md` exists
+   - If `stage >= 4`: check that `.orbit-state.plan_doc` is not empty, and `current_task <= total_tasks`
    - If `stage == 4`: check that `.orbit-state.plan_doc` path exists
    - If `stage == 0`: the change was finalized (id + type written) but Stage 0 never transitioned out — read `.orbit-state.change_type` and take the Stage 0 **Transition** directly (feature → Stage 1; bugfix/docs → Stage 2). No artifacts to verify at Stage 0.
    - If any check fails: output `[ORBIT_RESUME_WARNING] 状态文件引用的制品缺失: {missing}` and ask user:
@@ -202,19 +218,18 @@ If the user says "继续" or "continue" without a new change request:
 
    Update `.orbit-state`: `substage: approach_analysis`
 
-   Self-assess whether this change has **meaningful alternative implementation approaches** — this is about HOW (technical paths), not WHAT (requirements, which are already defined):
+   **Trigger** (present alternatives) when ANY of these countable signals is true:
+   - `change_type == feature` AND the Stage 1 design doc lists 3+ distinct architectural decisions
+   - The change modifies 5+ files across 2+ top-level modules/directories (detected by scanning the plan or the user request)
+   - The change introduces a new module, abstraction layer, or external dependency
+   - User request contains explicit uncertainty markers ("方案" / "怎么实现" / "哪种方式")
 
-   **Trigger** (present alternatives) when ANY of:
-   - Multiple viable technical paths exist (modify existing module vs. create new abstraction)
-   - Cross-module coordination required (composable + pages + components)
-   - Approach affects existing behavior in non-obvious ways
-   - Architectural decision with downstream consequences
+   **Skip** (go to Step 4) when ALL of:
+   - `change_type != feature` (bugfix/docs are lower-risk by definition)
+   - AND scope is ≤ 3 files in a single module
+   - AND no new module/abstraction/dependency is being introduced
 
-   **Skip** (go to Step 4) when ANY of:
-   - User request already specifies the approach explicitly
-   - Single-line fix, typo, or obvious mechanical change
-   - Pure docs/config change with no implementation choice
-   - Stage 1 design document already selected and documented the approach
+   Additionally, if the Stage 1 design doc already documents a selected approach with rationale, skip unless user explicitly asks.
 
    **When triggered**, present 2-3 approaches. For each: brief description (what changes + where), pros/cons (technical trade-offs), effort (S/M/L), risk (Low/Med/High with what could go wrong). Mark one as **主推 (Recommended)** with reasoning.
 
@@ -381,6 +396,31 @@ Before the first task, require user to choose commit mode:
 ```
 Write choice to `.orbit-state.commit_mode`.
 
+### Pre-flight: Task List Confirmation Gate
+
+Before entering the per-task loop, parse `tasks.md` and present the full task list for user confirmation:
+
+```
+=== [ORBIT_GATE] Stage 4 任务清单 ===
+
+共 {total_tasks} 个任务：
+
+1. <task-1 title>
+2. <task-2 title>
+...
+
+完整详情: openspec/changes/<change-id>/tasks.md
+参考: {plan_doc path}
+
+请选择：
+1. 确认 — 按此清单开始执行，依次完成所有任务
+2. 修改任务 — 用自然语言描述需要调整的内容（新增/删除/重排/合并）
+   Orbit 会回到 Stage 3 调整 plan 文档和 tasks.md，然后重新展示
+```
+
+- "1" → proceed to Record Stage 4 Baseline
+- "2" → return to Stage 3, re-run writing-plans with the user's adjustment instructions, re-generate tasks.md, then re-display this gate
+
 ### Pre-flight: Record Stage 4 Baseline
 
 Immediately before the per-task loop begins, capture the current HEAD as the Stage 4 rollback baseline:
@@ -471,18 +511,20 @@ When rollback is triggered (review failure or user chooses option 2):
 1. Show what will be discarded:
    ```
    git status --short
+   git status --short --untracked-files=normal
    git diff --stat HEAD
    ```
 2. User confirmation:
    ```
-Task N 未通过 review。将回滚到 Task N 开始前的提交点（rollback_base）。
-   将丢弃 <N> 个已修改文件和 <M> 个未跟踪文件。
+[ORBIT_ROLLBACK] Task N 未通过 review。将回滚到 Task N 开始前的提交点（rollback_base）。
+   将丢弃 {N} 个已修改文件和 {M} 个未跟踪文件。
+   未跟踪文件: {list from git status --short --untracked-files=normal}
 
    请选择：
    1. 继续 — 执行回滚，丢弃当前 Task 的所有变更
    2. 放弃 — 不回滚，保留当前状态供手动检查
    ```
-3. Execute: `git reset --hard <task_history[N].rollback_base>` + `git clean -fd`
+3. On "1": execute `git reset --hard <task_history[N].rollback_base>` first, then show untracked files again with `git status --short --untracked-files=normal`, then `git clean -fd` only with user acknowledgement of the listed files.
 4. Mark `.orbit-state.task_history[N].status = failed`, `.rollback_to = task_history[N].rollback_base`
 5. Pause for user decision: retry task / skip task / terminate Stage 4
 
@@ -565,14 +607,15 @@ If a bug reveals a spec defect (not an implementation error):
 
 ## Self-Check (Pre-Action Guard)
 
-**Trigger**: Before executing `writing-plans`, `subagent-driven-development`, or `finishing-a-development-branch` (whether via native skill or inline fallback).
+**Trigger**: Before executing `brainstorming`, `writing-plans`, `subagent-driven-development`, or `finishing-a-development-branch` (whether via native skill or inline fallback). Also runs on Resume and before every stage transition (Stage N → Stage N+1).
 
-**Procedure**:
+**Procedure (Stage Check)**:
 1. Read `.orbit-state.stage`
 2. Check against the legal stage table:
 
 | Skill | Legal Stage | .orbit-state.stage Expectation |
 |-------|------------|-------------------------------|
+| `brainstorming` | Stage 1 | `stage == 1` |
 | `writing-plans` | Stage 3 | `stage == 3` |
 | `subagent-driven-development` | Stage 4 | `stage == 4` |
 | `finishing-a-development-branch` | Stage 5 | `stage == 5` |
@@ -586,7 +629,11 @@ If a bug reveals a spec defect (not an implementation error):
    - Output: `[ORBIT_SELF_CHECK_PASSED] Loading {skill}`
    - Load and execute
 
-**Why only these three?** These are the "transition target" skills that sub-skills automatically point to. Blocking them covers all serious stage-drift scenarios. Brainstorming (Stage 1) and Stage 5 verification skills don't have this risk.
+**Procedure (Integrity Check)**: After the stage check passes, verify cross-field consistency:
+1. **preliminary guard**: If `stage >= 2` and `preliminary == true`: output `[ORBIT_INTEGRITY_FAILED] stage={stage} but preliminary is still true — Stage 1 never finalized the change-id.` → abort current action, prompt user to either re-run Stage 1 or manually set `preliminary: false`. This guard prevents the workflow from entering Stage 2+ with a provisional change-id.
+2. **tasks.md existence**: If `stage >= 3`: check `openspec/changes/<change_id>/tasks.md` exists. Missing → `[ORBIT_INTEGRITY_FAILED] tasks.md missing for stage={stage}` → abort.
+3. **Stage 4 consistency**: If `stage >= 4`: check `plan_doc` is not empty (empty → abort). Check `current_task <= total_tasks` (violated → abort). Output `[ORBIT_INTEGRITY_FAILED]` with the offending field values.
+Output `[ORBIT_INTEGRITY_PASSED]` on success, then continue.
 
 ### Self-Check Hook for Sub-Skill Exit
 
