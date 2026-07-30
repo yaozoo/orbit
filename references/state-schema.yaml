@@ -86,7 +86,8 @@ stage4_baseline_commit:
   type: string
   default: ""
   description: >
-    Stage 4 pre-flight 记录的基线 commit（per-task loop 开始前的 git rev-parse HEAD）。
+    Stage 4 Pre-flight 记录的基线 commit（branch checkout 之后的 git rev-parse HEAD）。
+    此时工作区已在 {branch_name} 上，因此基线及所有后续 task commit 均落在 feature branch。
     作为 Task 1 的 rollback_base，即整个实现阶段的初始回滚锚点。若 Task 1 失败，回滚到此处。
 
 task_history:
@@ -149,6 +150,13 @@ branch_name:
   type: string
   default: ""
   description: "Git 分支名。Stage 0 Step 4 根据 change-type + change-id 生成（格式: <type>/<change-id>）。feature 在 Stage 1 改名时随之更新；bugfix/docs 在 Stage 0 即定稿不再变。"
+
+branch_checked_out:
+  type: boolean
+  default: false
+  description: >
+    Stage 4 Pre-flight 执行 branch checkout 后置 true。标记 feature branch 已创建并切换，
+    所有实现 commit 已落在 branch_name 上（而非 origin_branch）。resume 时跳过重复创建。
 
 # ── 方案分析 ──────────────────────────────────────────────
 

@@ -383,6 +383,22 @@ Before commit mode selection, verify the git worktree is clean:
 
 **Rationale**: Stage 4 atomic rollback records `git rev-parse HEAD` before each task. Uncommitted changes make the rollback point meaningless — a reset would lose work that was never part of any task.
 
+### Pre-flight: Branch Checkout
+
+Before recording the Stage 4 baseline, switch to the feature branch so all implementation commits land on `{branch_name}` — not on `origin_branch` (which is typically `main`). Without this step, every task commit would accumulate on `origin_branch`, making the Stage 5 feature-branch merge a fast-forward no-op and defeating branch isolation entirely.
+
+1. Read `.orbit-state.branch_name` and `.orbit-state.origin_branch`
+2. Check current branch: `git branch --show-current`
+   - If already on `{branch_name}` → proceed (resume scenario)
+   - If on `{origin_branch}` or any other branch:
+     - Check if `{branch_name}` exists: `git show-ref --verify --quiet refs/heads/{branch_name}`
+       - If exists → `git checkout {branch_name}`
+       - If not exists → `git checkout -b {branch_name}` (create from current HEAD, which is on `origin_branch`)
+3. Verify clean checkout: `git branch --show-current` must equal `{branch_name}`
+4. Write `.orbit-state.branch_checked_out: true` (marks that Stage 4 has taken over the branch; resume skips re-creating)
+
+**Rationale**: `finishing-a-development-branch` requires the correct feature branch to be checked out before it runs. Creating the branch here — at the start of implementation, not the end — ensures the baseline commit, all per-task commits, and all rollback anchors live on the feature branch. Stage 5 then merges `{branch_name}` → `{origin_branch}` as a real merge, not a no-op.
+
 ### Pre-flight: Commit Mode Selection
 
 Before the first task, require user to choose commit mode:
@@ -593,13 +609,14 @@ If a bug reveals a spec defect (not an implementation error):
 5. **Execute openspec-archive-change** (load skill or use inline fallback — see Tool Compatibility): archive change, sync delta specs → main specs
 
 6. **Execute finishing-a-development-branch** (load skill or use inline fallback — see Tool Compatibility):
-   - Read `.orbit-state.branch_name`
-   - Read `.orbit-state.origin_branch`
-   - Check if branch exists: `git show-ref --verify --quiet refs/heads/{branch_name}`
-     - If exists & differs from current branch → `git checkout {branch_name}` (pause if current branch has uncommitted changes)
-     - If exists & is current branch → proceed
-     - If not exists → `git checkout -b {branch_name}` (create from current HEAD)
-   - **Base branch routing**:
+  - Read `.orbit-state.branch_name`
+  - Read `.orbit-state.origin_branch`
+  - Verify feature branch exists: `git show-ref --verify --quiet refs/heads/{branch_name}`
+   - If exists → ensure we are on `{branch_name}`: `git checkout {branch_name}` if current branch differs (pause if current branch has uncommitted changes)
+    - If not exists → branch creation is **context-dependent**:
+      - If `change_type == feature || change_type == bugfix` → **ERROR**: the feature branch should have been created in Stage 4 Pre-flight. Output `[ORBIT_ERROR] branch_name={branch_name} not found — Stage 4 branch checkout was skipped or the branch was deleted. Manual recovery required.` and pause for user action. Do NOT attempt to create it here (the implementation commits would be missing).
+      - If `change_type == docs` → create it now: `git checkout -b {branch_name}` (docs skips Stage 4, so the branch was never checked out. Any uncommitted doc artifacts will be carried onto the new branch. Commit them before merging.)
+  - **Base branch routing**:
      - If `origin_branch` is `main` or `master` → delegate to `finishing-a-development-branch` skill normally (its auto-detection of base branch via `git merge-base` will be correct).
      - If `origin_branch` is something else (e.g., another feature branch like `feature/xxx`) → Orbit handles merge directly. `finishing-a-development-branch` hardcodes `git merge-base HEAD main/master` which would detect the wrong target. Orbit bypasses it:
        1. `git checkout {origin_branch}`
@@ -616,9 +633,9 @@ If a bug reveals a spec defect (not an implementation error):
           1. Push — git push origin {origin_branch}
           2. 保留当前状态 — 不做任何操作
           
-          [ORBIT] Stage 5 完成 ✓
-          ```
-   - Note: `finishing-a-development-branch` auto-detects the current branch via `git rev-parse`; there is no parameter-passing interface. Orbit must ensure the correct branch is checked out beforehand. When `origin_branch` is non-standard (not main/master), Orbit bypasses `finishing-a-development-branch` for the merge step to avoid base-branch detection errors.
+         [ORBIT] Stage 5 完成 ✓
+         ```
+  - Note: The feature branch `{branch_name}` was created and checked out in Stage 4 Pre-flight, so all implementation commits already live on it. Stage 5 merges it back into `{origin_branch}`. `finishing-a-development-branch` auto-detects the current branch via `git rev-parse`; there is no parameter-passing interface. Orbit must ensure the correct branch is checked out beforehand. When `origin_branch` is non-standard (not main/master), Orbit bypasses `finishing-a-development-branch` for the merge step to avoid base-branch detection errors.
 
 7. Update `.orbit-state`: `substage: complete`
 
@@ -704,7 +721,7 @@ When a sub-skill file is not available, execute the following inline workflows:
 > Archive the change: move the delta specs from `openspec/changes/<change-id>/specs/` into the main `openspec/specs/<capability>/spec.md` (merge ADDED requirements into the live spec), mark the change as archived, and confirm `openspec/changes/<change-id>/` no longer needs active tracking. If `openspec archive` CLI is available, prefer it; otherwise perform the merge manually: append each `### Requirement:` block from the change's delta spec into the corresponding main spec file (creating the capability file if absent), then leave the change directory in place as an audit record. Report what was merged where.
 
 **finishing-a-development-branch** (Stage 5):
-> Ensure the correct branch is checked out (from `.orbit-state.branch_name`). Determine integration strategy: merge to main, rebase, or squash-merge based on project conventions. Check for merge conflicts. If clean, proceed with merge. If conflicts, resolve them. Delete the feature branch after merge if project convention requires it.
+> The feature branch `{branch_name}` was created and checked out in Stage 4 Pre-flight (for feature/bugfix), so all implementation commits already live on it. Verify the branch exists (`git show-ref --verify refs/heads/{branch_name}`). For `change_type == docs` (which skips Stage 4), create the branch if it does not exist: `git checkout -b {branch_name}`. For `feature`/`bugfix`, if the branch does not exist this is an error — Stage 4 was skipped or the branch was deleted; do not create it here (the commits would be missing). If it exists, ensure we are on `{branch_name}`, then determine integration strategy: merge to `{origin_branch}`, rebase, or squash-merge based on project conventions. Check for merge conflicts. If clean, proceed with merge. If conflicts, resolve them. Delete the feature branch after merge if project convention requires it.
 
 ### OpenSpec CLI Fallback
 
