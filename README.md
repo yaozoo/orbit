@@ -57,17 +57,17 @@ Orbit 不重写任何一个 Skill。它只做四件事：**决定阶段、执行
 
 ## 核心优势
 
-### 1. 零依赖，纯 Skill
+### 1. 零运行时依赖，纯 Skill
 
 ```
 npm install ×
 Node.js 20+ ×
-Bash 环境 ×
+自定义 CLI ×
 
-只需要一个 SKILL.md 文件。
+运行 Orbit 只需要一个 SKILL.md 文件。
 ```
 
-没有安装命令，没有环境要求。任何支持 Agent Skills 的 AI 编程助手都能用。
+没有 npm 包、后台服务或构建步骤。任何支持 Agent Skills 的 AI 编程助手都能使用；OpenSpec CLI 和 Superpowers skills 可增强体验，但缺失时 Orbit 会使用内联 fallback。
 
 ### 2. 状态持久化 + 断点续传
 
@@ -133,7 +133,7 @@ docs:     0 ────────→ 2 ────────────�
 ### 前置条件
 
 - 使用支持 Agent Skills 的 AI 编程助手（Codex、Claude Code、Cursor、Windsurf）
-- 已安装 [OpenSpec](https://github.com/Fission-AI/OpenSpec)（用于 spec 管理）
+- 推荐安装 [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI（用于 spec 管理；未安装时 Orbit 使用内联校验/归档 fallback）
 - 已安装 [Superpowers](https://github.com/obra/superpowers)（可选，Orbit 有内联 fallback）
 
 ### 30 秒快速安装
@@ -196,7 +196,7 @@ Orbit **不会自动激活**。你必须显式触发它：
 Orbit:
   Stage 0: 生成 change-id "add-oauth-login"，识别为 feature
   → 类型明确，自动确认 feature（无需手动选择）
-  → 写入 .orbit-state，自动切换到分支 feature/add-oauth-login
+  → 写入 .orbit-state，记录目标分支 feature/add-oauth-login
 
   Stage 1: 启动头脑风暴
   → 和你进行 2-3 轮澄清对话
@@ -320,13 +320,13 @@ Orbit 最初命名为 Comet，后发现与 [rpamis/comet](https://github.com/rpa
 
 | 项目 | 类型 | 依赖 | 独特之处 |
 |------|------|------|---------|
-| **Orbit** | Agent Skill | 仅 AI 助手 | 零依赖、纯 Skill、跨工具兼容 |
+| **Orbit** | Agent Skill | 仅 AI 助手；OpenSpec CLI 可选 | 零运行时依赖、纯 Skill、跨工具兼容 |
 | superspec | OpenSpec Schema | OpenSpec + Superpowers | OpenSpec 作为编排器 |
 | openflow | NPM CLI | Node.js | 多阶段命令 |
 | sddflow | NPM CLI | Node.js | brainstorming → spec → build → close |
 | easyflow | NPM CLI | Node.js 20+ | 8 阶段状态机 + 治理层 |
 
-**Orbit 的独特定位**：在所有同类项目中，Orbit 是唯一一个纯 Skill 实现的方案。你不需要 `npm install` 任何东西。
+**Orbit 的独特定位**：在所有同类项目中，Orbit 是唯一一个纯 Skill 实现的方案。你不需要 `npm install` 任何东西；外部 CLI 只是增强项，不是运行前提。
 
 ---
 

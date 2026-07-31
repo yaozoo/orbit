@@ -57,17 +57,17 @@ Orbit rewrites nothing. It does exactly four things: **decide the stage, execute
 
 ## Why Orbit Wins
 
-### 1. Zero Dependencies. Pure Skill.
+### 1. Zero Runtime Dependencies. Pure Skill.
 
 ```
 npm install   — not needed.
 Node.js 20+   — not needed.
-Bash scripts  — not needed.
+Custom CLI    — not needed.
 
-Just one SKILL.md file.
+Orbit runs from one SKILL.md file.
 ```
 
-No install command. No environment requirements. Works on any AI coding tool that supports Agent Skills.
+No npm package, background service, or build step. Orbit works on any AI coding tool with Agent Skills support; the OpenSpec CLI and Superpowers skills improve the experience, but Orbit falls back to inline instructions when they are absent.
 
 ### 2. State-Persistent. Never Lose Context.
 
@@ -135,7 +135,7 @@ Every stage ends with `[ORBIT_CHECKPOINT]`. Sub-skill terminal jumps are interce
 ### Prerequisites
 
 - An AI coding tool with Agent Skills support (Codex, Claude Code, Cursor, Windsurf)
-- [OpenSpec](https://github.com/Fission-AI/OpenSpec) installed
+- [OpenSpec](https://github.com/Fission-AI/OpenSpec) CLI recommended for spec management; without it, Orbit uses inline validation/archive fallbacks
 - [Superpowers](https://github.com/obra/superpowers) (optional — Orbit has inline fallbacks)
 
 ### 30-Second Install
@@ -196,7 +196,7 @@ You: /orbit add OAuth login to the system
 Orbit:
   Stage 0: change-id "add-oauth-login", classified as feature
   → type unambiguous, auto-confirm feature (no manual pick)
-  → write .orbit-state, auto-checkout branch feature/add-oauth-login
+  → write .orbit-state, record target branch feature/add-oauth-login
 
   Stage 1: brainstorming kicks in
   → 2-3 rounds of clarifying questions
@@ -318,13 +318,13 @@ Orbit was originally named Comet, renamed after discovering [rpamis/comet](https
 
 | Project | Type | Dependencies | Distinction |
 |---------|------|-------------|-------------|
-| **Orbit** | Agent Skill | AI tool only | Zero deps, pure skill, cross-tool |
+| **Orbit** | Agent Skill | AI tool only; OpenSpec CLI optional | Zero runtime deps, pure skill, cross-tool |
 | superspec | OpenSpec Schema | OpenSpec + Superpowers | OpenSpec as orchestrator |
 | openflow | NPM CLI | Node.js | Multi-stage commands |
 | sddflow | NPM CLI | Node.js | brainstorming → spec → build → close |
 | easyflow | NPM CLI | Node.js 20+ | 8-stage state machine + governance |
 
-**Orbit's unique position**: the only pure-Skill orchestrator. No `npm install` required.
+**Orbit's unique position**: the only pure-Skill orchestrator. No `npm install` required; external CLIs are enhancements, not runtime prerequisites.
 
 ---
 

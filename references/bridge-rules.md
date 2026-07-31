@@ -119,7 +119,7 @@ tasks.md 条目保留对 plan 文档的引用路径，Stage 4 分发 subagent �
 
 ---
 
-## Stage 4 Internal: Bugfix / Docs → OpenSpec Artifacts
+## Stage 2 Internal: Bugfix / Docs → OpenSpec Artifacts
 
 当 `change_type == bugfix` 或 `change_type == docs` 时，无 Stage 1 设计文档。Orbit 从用户请求中直接提取信息：
 

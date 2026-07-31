@@ -118,7 +118,7 @@ If the user says "继续" or "continue" without a new change request:
 
 1. **Generate change-id (in memory only)**: Parse user request → `<verb>-<noun>` (e.g., `add-oauth-login`). If ambiguous, use `change-YYYYMMDD-NNN`. Validate kebab-case. Conflict check with `ls openspec/changes/`. Do **not** create the directory yet — that happens in Step 4 after the type is settled.
 
-2. **Detect test command** (does not depend on change type):
+2. **Detect test command and CLI availability** (does not depend on change type):
    *Prefer headless (CI-compatible) test scripts.* Check `package.json` for
    `test:unit` or `test:ci` first. If not found, fall back to `scripts.test`.
    If the detected script starts a dev server (e.g., `vite`), search for
@@ -126,6 +126,10 @@ If the user says "继续" or "continue" without a new change request:
    → `pytest`, `Cargo.toml` → `cargo test`, `go.mod` → `go test ./...`,
    `Makefile` → `make test`. If none match, ask user. Hold the result in memory
    for the single state write in Step 4.
+   Also detect OpenSpec CLI availability with `command -v openspec` and hold
+   `openspec_available: true/false` in memory. This does not block the workflow;
+   it only determines whether later OpenSpec steps use the CLI path or the
+   documented inline fallback path.
 
 3. **Classify change type (tri-state)**: Scan the user's request against the keyword map:
 
@@ -154,7 +158,7 @@ If the user says "继续" or "continue" without a new change request:
 
 4. **Create directory and write .orbit-state once**: Now that `change_id` and `change_type` are both settled:
    - `mkdir -p openspec/changes/<change-id>/`
-   - Write a single complete `.orbit-state` in one pass with: `change_id`, `schema_version: "1.0.0"`, `change_type`, `branch_name` (generated as `<type>/<change-id>`, e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`), `origin_branch` (captured from `git branch --show-current`), `test_cmd` (from Step 2), `preliminary`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
+   - Write a single complete `.orbit-state` in one pass with: `change_id`, `schema_version: "1.1.0"`, `change_type`, `branch_name` (generated as `<type>/<change-id>`, e.g., `feature/add-oauth-login`, `bugfix/fix-payment`, `docs/update-readme`), `origin_branch` (captured from `git branch --show-current`), `test_cmd` (from Step 2), `openspec_available` (from Step 2), `preliminary`, `stage: 0`, `created_at`, `updated_at`. Schema reference: `references/state-schema.yaml`.
    - `preliminary` is set by type: **feature** → `true` (the id is provisional until Stage 1 brainstorming may refine it; `preliminary: true` restricts the workflow to Stage 0 ↔ Stage 1, and Stage 2+ cannot proceed until Stage 1 finalizes the id and sets `preliminary: false`); **bugfix / docs** → `false` (no Stage 1, so the id is already final at Stage 0 and the workflow may proceed straight to Stage 2).
 
 **Transition**: If `feature` → Stage 1. If `bugfix` or `docs` → Stage 2.
@@ -268,7 +272,7 @@ If the user says "继续" or "continue" without a new change request:
    - `feature` / `bugfix` — `design.md` (Architecture / Data Flow) + `specs/<capability>/spec.md` (EARS-format requirements). bugfix 的 spec 描述"修复后应满足的正确行为"。
    - `docs` — 默认仅 `proposal.md`，跳过 `design.md` 与 `specs/`（纯文档/配置变更通常无 EARS 行为契约）。仅当文档变更隐含一条可验证的行为契约时才补 `specs/`，此时 `design.md` 仍可省略。详见 bridge-rules "Docs → proposal.md（轻量）"。
 
-5. Validate: run `openspec status --change "<id>" --json`
+5. Validate: if `.orbit-state.openspec_available == true`, run `openspec status --change "<id>" --json`. If false, output `[ORBIT_FALLBACK] OpenSpec CLI not found; using inline fallback validation for openspec status.` and use the OpenSpec CLI Fallback checklist below.
 
 6. **Blocking Human Review Gate** (CANNOT be skipped):
    ```
@@ -602,11 +606,11 @@ If a bug reveals a spec defect (not an implementation error):
 
 2. **Execute verification-before-completion** (load skill or use inline fallback — see Tool Compatibility): run `test_cmd` from `.orbit-state`, confirm all pass
 
-3. **Execute openspec-verify-change** (load skill or use inline fallback — see Tool Compatibility): code vs spec consistency check
+3. **Execute openspec-verify-change** (load skill or use inline fallback — see Tool Compatibility): code vs spec consistency check. If `.orbit-state.openspec_available == false`, first output `[ORBIT_FALLBACK] OpenSpec CLI not found; using inline fallback verification.`
 
 4. Update `.orbit-state`: `substage: archiving`
 
-5. **Execute openspec-archive-change** (load skill or use inline fallback — see Tool Compatibility): archive change, sync delta specs → main specs
+5. **Execute openspec-archive-change** (load skill or use inline fallback — see Tool Compatibility): archive change, sync delta specs → main specs. If `.orbit-state.openspec_available == false`, first output `[ORBIT_FALLBACK] OpenSpec CLI not found; using inline fallback archive.`
 
 6. **Execute finishing-a-development-branch** (load skill or use inline fallback — see Tool Compatibility):
   - Read `.orbit-state.branch_name`
@@ -694,6 +698,10 @@ When Orbit instructs you to "load" or "execute" a sub-skill, follow this resolut
 
 ### Inline Fallback Instructions
 
+Inline fallback is a continuity mechanism, not the preferred path. When a native
+skill is missing and Orbit falls back to the summaries below, first output
+`[ORBIT_FALLBACK] Native skill <name> not found; using inline fallback. Install the official skill for the full workflow.`
+
 When a sub-skill file is not available, execute the following inline workflows:
 
 **brainstorming** (Stage 1):
@@ -726,8 +734,9 @@ When a sub-skill file is not available, execute the following inline workflows:
 ### OpenSpec CLI Fallback
 
 When Orbit instructs an `openspec` CLI command (`openspec status`, `openspec verify`, or `openspec archive`):
-- If the `openspec` CLI is installed: run it as instructed.
-- If not installed: use the inline fallback for the corresponding skill (`verification-before-completion` already covers `test_cmd`; `openspec-verify-change` and `openspec-archive-change` inline fallbacks above cover verify and archive respectively). For `openspec status` specifically, fall back to this validation checklist:
+- If `.orbit-state.openspec_available == true`: run it as instructed.
+- If `.orbit-state.openspec_available == false`: output `[ORBIT_FALLBACK] OpenSpec CLI not found; using inline fallback for <status|verify|archive>.` Then use the inline fallback for the corresponding skill (`verification-before-completion` already covers `test_cmd`; `openspec-verify-change` and `openspec-archive-change` inline fallbacks above cover verify and archive respectively). For `openspec status` specifically, fall back to this validation checklist:
+- If `openspec_available` is missing because the state was created by an older Orbit version: detect with `command -v openspec`, update `.orbit-state.openspec_available`, then follow the matching branch above.
   1. Confirm `openspec/changes/<change-id>/` directory structure is complete
   2. Confirm `proposal.md` contains `## Why`, `## What Changes`, `## Impact` sections
   3. Confirm `specs/<capability>/spec.md` contains `## ADDED Requirements` and at least one `### Requirement:` — **required for `feature` and `bugfix`; for `docs` this is optional/skipped** (docs changes default to proposal.md only; see Stage 2 Step 4 and bridge-rules "Docs → proposal.md（轻量）")

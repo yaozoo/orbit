@@ -1,15 +1,17 @@
 # .orbit-state Schema — Orbit 工作流状态机字段定义
-# 版本: 1.0.0
+# 版本: 1.1.0
 # 文件位置: openspec/changes/<change-id>/.orbit-state
 
 # ── 版本管理 ──────────────────────────────────────────────
 
 schema_version:
   type: string
-  default: "1.0.0"
+  default: "1.1.0"
   description: >
     Orbit state schema 版本。未来升级变更结构时，通过此字段触发迁移逻辑。
     Agent 启动时检查此版本与当前 SKILL.md 声明的兼容版本是否匹配。
+    1.1.0 新增 `openspec_available`，用于记录 OpenSpec CLI 是否可用；缺失该字段的
+    1.0.0 状态文件可在恢复时探测并补写该字段。
 
 # ── 变更标识 ──────────────────────────────────────────────
 
@@ -75,7 +77,10 @@ commit_mode:
 current_task:
   type: integer
   default: 0
-  description: "Stage 4 已完成的 Task 数（0 表示尚未开始任何 Task）。Stage 4 Step 6 在每个 Task 完成后 +1，故它指向"下一个待执行 Task"的前一个；当前正在执行的 Task = current_task + 1。"
+  description: >
+    Stage 4 已完成的 Task 数（0 表示尚未开始任何 Task）。
+    Stage 4 Step 6 在每个 Task 完成后 +1，故它指向"下一个待执行 Task"的前一个；
+    当前正在执行的 Task = current_task + 1。
 
 total_tasks:
   type: integer
@@ -144,7 +149,15 @@ origin_branch:
 test_cmd:
   type: string
   default: ""
-  description: "项目测试命令，Stage 0 Step 1 自动探测（如 pnpm test）"
+  description: "项目测试命令，Stage 0 Step 2 自动探测（如 pnpm test）"
+
+openspec_available:
+  type: boolean
+  default: false
+  description: >
+    Stage 0 Step 2 通过 `command -v openspec` 探测并写入。
+    true 表示 Stage 2/5 优先执行 OpenSpec CLI (`openspec status/verify/archive`)；
+    false 表示 Orbit 明确处于 OpenSpec inline fallback 模式，执行前需输出 `[ORBIT_FALLBACK]` 提示。
 
 branch_name:
   type: string

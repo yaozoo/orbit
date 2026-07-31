@@ -31,6 +31,7 @@ Pre-Action Guard 在加载以下 skill 前执行：
 
 | 即将加载的 Skill | 期望 `.orbit-state.stage` | 不匹配时动作 |
 |-----------------|--------------------------|-------------|
+| `brainstorming` | 1 | 输出 `[ORBIT_SELF_CHECK_FAILED]`，跳转到正确阶段 |
 | `writing-plans` | 3 | 输出 `[ORBIT_SELF_CHECK_FAILED]`，跳转到正确阶段 |
 | `subagent-driven-development` | 4 | 输出 `[ORBIT_SELF_CHECK_FAILED]`，跳转到正确阶段 |
 | `finishing-a-development-branch` | 5 | 输出 `[ORBIT_SELF_CHECK_FAILED]`，跳转到正确阶段 |

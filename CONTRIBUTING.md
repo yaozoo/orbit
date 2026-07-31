@@ -70,7 +70,13 @@ ln -sfn $(pwd) ~/.agents/skills/orbit
 
 ### Testing Changes
 
-Test manually by running through a simple feature or bugfix workflow. Focus on:
+Run the lightweight repository checks first:
+
+```bash
+sh scripts/validate.sh
+```
+
+Then test manually by running through a simple feature or bugfix workflow. Focus on:
 
 - Does Orbit correctly detect the change type at Stage 0?
 - Does the stage transition logic work (0→1→2 etc.)?
@@ -81,6 +87,7 @@ Test manually by running through a simple feature or bugfix workflow. Focus on:
 ### Before You Submit
 
 - [ ] Verify your changes don't break the state schema (check `references/state-schema.yaml`)
+- [ ] Run `sh scripts/validate.sh`
 - [ ] Run through at least one full workflow with a real AI tool
 - [ ] If you modified bridge rules, test with both feature and bugfix paths
 - [ ] Update the relevant reference files if you changed stage logic
