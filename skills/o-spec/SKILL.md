@@ -20,6 +20,10 @@ input:
     type: str
     required: true
     description: "Path to the requirement doc(s) inside the repo. Relative path to a file, a folder (globs **/*.md and **/*.txt), or a full GitLab UI URL."
+  figma_token:
+    type: str
+    required: false
+    description: "Figma personal access token. Optional — only used if the docs contain Figma links. Empty token + Figma links present → hard block."
 output:
   exit_code:
     type: int
@@ -32,7 +36,7 @@ output:
   block_reason:
     type: str
     required: false
-    description: "Present only when exit_code=2 (e.g. doc_url_not_found, branch_not_on_remote, push_failed)"
+    description: "Present only when exit_code=2 (e.g. doc_url_not_found, branch_not_on_remote, push_failed, figma_link_without_token, figma_token_invalid, figma_fetch_failed)"
   doc_type:
     type: str
     required: true
@@ -110,6 +114,51 @@ Classify the input:
 Record `doc_type` and, if you made interpretive leaps, `assumptions[]` and a
 `confidence` below 1.0. Pure passthrough of an unambiguous task-list =
 `confidence: 1.0`, empty `assumptions`.
+
+### 3.5 Figma fetch (only if docs reference Figma)
+
+Scan the resolved docs for Figma URLs (match
+`figma.com/file/<key>/...` or `figma.com/design/<key>/...`, capturing the
+`file_key` and any `node-id=<node_id>` query param).
+
+- **No Figma URLs found** → skip this step entirely. Do not touch the token.
+- **Figma URLs found, `figma_token` is empty/missing** → `exit_code: 2`,
+  `block_reason: figma_link_without_token: <one url>`, stop. Do not proceed
+  to synthesize a spec that silently drops the visual requirements.
+- **Figma URLs found, token present** → validate before fetching. Pick the
+  first URL's `file_key`, call:
+  ```bash
+  curl -sSL -o /dev/null -w '%{http_code}' \
+    -H "X-Figma-Token: <figma_token>" \
+    "https://api.figma.com/v1/files/<file_key>"
+  ```
+  - HTTP 401 / 403 → token is wrong/revoked → `exit_code: 2`,
+    `block_reason: figma_token_invalid: API returned <code>`, stop.
+  - HTTP 200 → token is good; proceed.
+  - HTTP 404 / 400 → the file_key itself is bad → `exit_code: 2`,
+    `block_reason: figma_fetch_failed: <url> returned <code>`, stop.
+
+  Then for every Figma URL, make two API calls (both authenticated with
+  `X-Figma-Token`, both against `api.figma.com`):
+  ```bash
+  # 1) node tree — text, layout, fills, component refs (the real "read")
+  curl -sSL -H "X-Figma-Token: <figma_token>" \
+    "https://api.figma.com/v1/files/<file_key>/nodes?ids=<node_id>" \
+    -o openspec/figma/<n>.json
+  # 2) rendered PNG — images endpoint returns {"images":{"<id>":"<url>"}}
+  curl -sSL -H "X-Figma-Token: <figma_token>" \
+    "https://api.figma.com/v1/images/<file_key>?ids=<node_id>&format=png&scale=2" \
+    -o /tmp/o-spec/figma-<n>.json
+  img_url=$(grep -oE 'https://[^"]+' /tmp/o-spec/figma-<n>.json | head -1)
+  curl -sSL "$img_url" -o openspec/figma/<n>.png
+  ```
+  Save the node JSON to `openspec/figma/<n>.json` and the PNG to
+  `openspec/figma/<n>.png` (create `openspec/figma/`). Reference each render
+  in `design.md` beside the requirement it illustrates; quote any text
+  content from the node JSON into the proposal so o-build can match it.
+
+`figma_token` is used only in this step. o-build and o-review never receive
+it; they see the committed renders via the branch (relay, ADR-0001).
 
 ### 4. Synthesize the OpenSpec trio
 

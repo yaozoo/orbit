@@ -24,7 +24,7 @@ status, commit_hash, counts, verdict) — never file paths.
 
 | phase | reads | writes | commits |
 |---|---|---|---|
-| `o-spec` | `DocSpec/` doc(s) | `openspec/{proposal,design,tasks}.md` | the trio |
+| `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/{proposal,design,tasks}.md` (+ `openspec/figma/` renders) | the trio (+ renders) |
 | `o-build` | `openspec/` | `src/`, `tests/`, updated `tasks.md` | code + tests |
 | `o-review` | `openspec/` + code | `openspec/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
 
@@ -37,10 +37,12 @@ Each phase's `exit_code`: `0` success / `1` failure (leave for review) /
 Publish the three plugins (Plugins → + publish → zip each `skills/o-*` dir),
 then register this mission: [`examples/feature-pipeline.yaml`](examples/feature-pipeline.yaml).
 
-The mission inputs (`gitlab_url`, `branch`, `doc_url`) are filled on Start
-Run. `branch` must already exist on remote with the requirement doc under
-`DocSpec/` — the user creates it, pushes, then configures the three fields on
-the platform.
+The mission inputs (`gitlab_url`, `branch`, `doc_url`, and optional
+`figma_token`) are filled on Start Run. `branch` must already exist on
+remote with the requirement doc under `DocSpec/` — the user creates it,
+pushes, then configures the fields on the platform. `figma_token` is only
+read by `o-spec`; leave it blank when the docs have no Figma links — if
+they do, a blank or invalid token hard-blocks (`exit_code: 2`).
 
 ## Files
 

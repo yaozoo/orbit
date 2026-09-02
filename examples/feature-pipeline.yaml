@@ -23,6 +23,13 @@ inputs:
     description: |
       仓库内需求文档位置 (仅 o-spec 读). 相对路径 / GitLab UI URL;
       文件夹则 glob **/*.md 与 **/*.txt. 找不到 → o-spec exit_code=2.
+  figma_token:
+    type: str
+    required: false
+    description: |
+      Figma personal access token (仅 o-spec 用). 可选: 文档无 figma 链接
+      则留空. 一旦 o-spec 在文档里检出 figma 链接, 此 token 必填且必须有效;
+      空 → exit_code=2 figma_link_without_token; 失效 → figma_token_invalid.
 
 output:
   status:          $review.status
@@ -41,9 +48,10 @@ nodes:
       max_attempts: 3
       timeout_seconds: 1800
     inputs:
-      gitlab_url: $mission.gitlab_url
+      gitlab_url:  $mission.gitlab_url
       branch:     $mission.branch
       doc_url:    $mission.doc_url
+      figma_token: $mission.figma_token
 
   - id: build
     plugin: o-build
