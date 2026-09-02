@@ -4,7 +4,6 @@ description: |
   需求文档 (DocSpec/ 下文件或文件夹) 自动产出 OpenSpec trio → TDD 实施 →
   终审+自动修复, push 回指定分支. 节点间通过 **远程分支接力** (每节点
   clone → 工作 → commit → push), 全程零人工确认; 失败由 exit_code=2 转人工.
-  只处理 feature / bugfix.
 
 inputs:
   gitlab_url:
