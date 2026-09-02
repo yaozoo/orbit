@@ -109,6 +109,13 @@ Three axes, record each issue in `issues_found[]`
   → re-run o-build's lightweight bash assertions or a structural check.
   Failing tests/assertions are `high` issues. Missing verification for
   implemented behavior is `med`.
+- **Visual conformance (only if `openspec/figma/` exists)** — `read_file`
+  each figma render (`<n>.png`) and compare the implemented UI against it:
+  layout, text content, spacing, colour. o-review has no Figma token and
+  never calls the API — it only consumes renders o-spec already fetched.
+  Material divergence (missing element, wrong text, broken layout vs the
+  design) is a `med`/`high` issue (`high` if a whole section is missing or
+  the page structure doesn't match). Cosmetic-only drift → `low`.
 
 ```bash
 # run whatever test command the repo uses; if none, re-run build's assertions

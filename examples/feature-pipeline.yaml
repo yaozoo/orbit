@@ -51,7 +51,7 @@ nodes:
       gitlab_url:  $mission.gitlab_url
       branch:     $mission.branch
       doc_url:    $mission.doc_url
-      figma_token: $mission.figma_token
+      figma_token: $mission.figma_token?
 
   - id: build
     plugin: o-build

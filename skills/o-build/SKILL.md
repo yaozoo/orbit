@@ -102,6 +102,12 @@ For each task, in order:
      the verification is a lightweight bash assertion: file exists, contains
      the expected marker, valid JSON/HTML, structure check. This is NOT a
      block (see Step 5).
+   - Task touches UI and `openspec/figma/` exists → `read_file` the PNG
+     (`<n>.png`) the task maps to (multimodal — you see the image) and its
+     `<n>.json` for exact text/colours/structure. Implement to match the
+     render; quote text content verbatim from the node JSON. o-build has no
+     Figma token and never calls the API — it only consumes what o-spec
+     already fetched onto the branch.
 2. **Implement** the smallest change that makes the verification pass (green).
 3. **Run the task's verification** (and the broader suite if one exists).
 

@@ -25,8 +25,8 @@ status, commit_hash, counts, verdict) — never file paths.
 | phase | reads | writes | commits |
 |---|---|---|---|
 | `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/{proposal,design,tasks}.md` (+ `openspec/figma/` renders) | the trio (+ renders) |
-| `o-build` | `openspec/` | `src/`, `tests/`, updated `tasks.md` | code + tests |
-| `o-review` | `openspec/` + code | `openspec/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
+| `o-build` | `openspec/` (+ `openspec/figma/` renders) | `src/`, `tests/`, updated `tasks.md` | code + tests |
+| `o-review` | `openspec/` + code (+ figma renders) | `openspec/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
 
 Each phase's `exit_code`: `0` success / `1` failure (leave for review) /
 `2` blocked (route to human). Every phase pushes; a failed push is a hard
