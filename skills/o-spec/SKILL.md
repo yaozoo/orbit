@@ -1,0 +1,184 @@
+---
+name: o-spec
+description: |
+  Requirements analysis phase. Clones a GitLab repo, checks out the mission
+  branch, reads the requirement doc(s) under DocSpec/, judges what kind of
+  input it is and synthesizes the OpenSpec trio (proposal.md, design.md,
+  tasks.md), then commits and pushes to the branch. No in-skill confirmation.
+  Use as the first node of the o-pipeline mission.
+kind: llm_skill
+input:
+  gitlab_url:
+    type: str
+    required: true
+    description: "GitLab clone URL (must end in .git). The repo to operate on."
+  branch:
+    type: str
+    required: true
+    description: "Mission-input branch. Must already exist on remote (user created it, put DocSpec/ docs on it, and pushed). Checked out, not created."
+  doc_url:
+    type: str
+    required: true
+    description: "Path to the requirement doc(s) inside the repo. Relative path to a file, a folder (globs **/*.md and **/*.txt), or a full GitLab UI URL."
+output:
+  exit_code:
+    type: int
+    required: true
+    description: "0 success / 1 failure / 2 blocked (route to human)"
+  status:
+    type: str
+    required: true
+    description: "success | failure | blocked (mirrors exit_code)"
+  block_reason:
+    type: str
+    required: false
+    description: "Present only when exit_code=2 (e.g. doc_url_not_found, branch_not_on_remote, push_failed)"
+  doc_type:
+    type: str
+    required: true
+    description: "vague-requirement | detailed-change | task-list — how o-spec classified the input"
+  confidence:
+    type: float
+    required: true
+    description: "Soft-ambiguity signal 0..1. Never blocks; mission may gate an edge on it."
+  assumptions:
+    type: list
+    required: true
+    description: "Assumptions o-spec made when guessing. Empty list if none."
+  commit_hash:
+    type: str
+    required: true
+    description: "SHA of o-spec's phase commit (40 hex). Empty string only if blocked before commit."
+tools:
+  - bash
+  - read_file
+category: backend
+domain: spec
+---
+
+# o-spec: Autonomous Spec Synthesis
+
+> First phase of the o-pipeline. **Never ask the user anything.** Decide or
+> block (`exit_code: 2`) — there is no third option. State reaches the next
+> phase via the remote branch (relay), not via this node's filesystem.
+
+## Run
+
+### 1. Clone + checkout
+
+```bash
+git clone <gitlab_url> /tmp/o-spec/repo
+cd /tmp/o-spec/repo
+git checkout <branch>
+git pull --ff-only origin <branch>
+```
+
+- `git checkout <branch>` fails if the branch is not on remote (clone already
+  fetched all remote branches, so a present branch checks out cleanly). If it
+  fails → `exit_code: 2`, `block_reason: branch_not_on_remote: <branch> not on origin`,
+  emit output, stop. Do not create the branch — the user's flow guarantees it
+  exists; if it doesn't, a human must intervene.
+
+### 2. Resolve doc_url
+
+- Relative path (`apps/login/README.md` or `apps/login/`) → resolve against the
+  repo root.
+- Folder → glob `**/*.md` and `**/*.txt` (recursive), collect all matches.
+- Full GitLab UI URL (`https://gitlab.../-/tree/<branch>/path`) → strip to the
+  repo-relative path, resolve.
+- If nothing resolves to at least one readable file → `exit_code: 2`,
+  `block_reason: doc_url_not_found: <doc_url> resolved to 0 files`, stop.
+
+### 3. Read + classify + ground
+
+Read every resolved doc. Then ground in the codebase: walk the repo tree,
+and for **each distinct requirement** in the doc, locate the concrete
+file(s)/module(s) it will touch. Record this req→file map — it goes into
+`design.md` in Step 4. A requirement you cannot locate anywhere in the
+codebase is an assumption (if you can infer the target) or a hard block
+(Step 6, `block_reason: requirement_unlocatable: <requirement>`). Do not
+write a proposal against code you have not looked at.
+
+Classify the input:
+
+- **task-list** — the doc is already a breakdown of tasks.
+- **detailed-change** — the doc describes a specific change with enough
+  detail to implement directly.
+- **vague-requirement** — the doc is high-level / one-line / aspirational;
+  implementation must be inferred from the codebase.
+
+Record `doc_type` and, if you made interpretive leaps, `assumptions[]` and a
+`confidence` below 1.0. Pure passthrough of an unambiguous task-list =
+`confidence: 1.0`, empty `assumptions`.
+
+### 4. Synthesize the OpenSpec trio
+
+Write three files under `openspec/` (create the dir):
+
+- `openspec/proposal.md` — what & why. One paragraph of context, then the
+  proposed change. For a vague-requirement, derive this from the codebase +
+  the doc. For a detailed-change, adopt the doc's intent. For a task-list,
+  write a minimal proposal that frames the tasks.
+- `openspec/design.md` — how. Approach, trade-offs, and the req→file map
+  from Step 3 (each requirement → the file(s)/module(s) it touches). Skip
+  the map for a task-list that already carries design.
+- `openspec/tasks.md` — executable task list. Markdown checklist; each task
+  is one `- [ ]` line naming the file + intent. For a task-list input,
+  light-validate and adopt. Derive from proposal/design for the other two
+  types.
+
+Do NOT mutate anything outside `openspec/`. This phase writes docs only.
+
+### 5. Coverage self-check
+
+Re-read the original doc(s). For every distinct requirement (every bullet,
+every constraint, every "should"), confirm it has a 落点 in the trio — a
+matching line in `proposal.md` or a task in `tasks.md`, plus an entry in
+the `design.md` req→file map. This is the guard against drift: the LLM
+that drafted the spec can miss a requirement; this explicit re-read
+catches whole-bullet gaps.
+
+- A requirement with no 落点 → fill it (add a task / proposal line / map
+  entry), then re-run this check.
+- A requirement that cannot be given a 落点 because it is genuinely
+  ambiguous or out of scope → `exit_code: 2`,
+  `block_reason: requirement_uncovered: <requirement>`, stop. Do not let
+  an unaddressed requirement silently flow to `o-build`.
+
+Only proceed to commit when every requirement has a 落点.
+
+### 6. Hard-block checks
+
+Before committing, if any of these hold, `exit_code: 2` with a `block_reason`
+and stop (no commit, no push):
+
+- The doc is unreadable / not actually a requirement (e.g. binary, empty).
+- The target area cannot be located in the codebase at all.
+
+Soft ambiguity (which interpretation?) is NOT a hard block — pick the best
+read, record it in `assumptions`, lower `confidence`. Only route to a human
+when you genuinely cannot proceed.
+
+### 7. Commit + push
+
+```bash
+git add openspec/
+git -c user.name=mozi_agent -c user.email=mozi_agent@local \
+  commit -m "o-spec: synthesize openspec trio
+
+doc_type: <doc_type>
+confidence: <confidence>"
+git push origin <branch>
+```
+
+- Committer identity is the literal `mozi_agent` — do not read `git config`.
+- If `git push` fails → `exit_code: 2`,
+  `block_reason: push_failed: <stderr one-liner>`, stop. (The next phase
+  cannot proceed without this push — see ADR-0001.)
+- On success, `commit_hash` = the SHA you just pushed.
+
+## Output
+
+Emit the JSON object matching the `output:` contract above. `status` mirrors
+`exit_code` (`0→success`, `1→failure`, `2→blocked`). `commit_hash` is empty
+only when you blocked before reaching the commit step.

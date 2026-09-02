@@ -1,0 +1,156 @@
+---
+name: o-build
+description: |
+  Implementation phase. Clones the mission branch (which now carries o-spec's
+  openspec/ commit), reads proposal/design/tasks, and drives inline
+  verification + implementation through every task in tasks.md with per-task
+  rollback (real tests where a harness exists, lightweight bash assertions for
+  static/config deliverables). Commits code + tests and pushes. No in-skill
+  confirmation, no commit-mode prompt. Use as the second node of the o-pipeline
+  mission.
+kind: llm_skill
+input:
+  gitlab_url:
+    type: str
+    required: true
+    description: "GitLab clone URL (.git). Re-cloned fresh — o-build does not inherit o-spec's filesystem."
+  branch:
+    type: str
+    required: true
+    description: "Mission-input branch. Cloned and checked out; carries o-spec's openspec/ commit."
+output:
+  exit_code:
+    type: int
+    required: true
+    description: "0 success / 1 failure (tasks exhausted, leave for review) / 2 blocked"
+  status:
+    type: str
+    required: true
+    description: "success | failure | blocked"
+  block_reason:
+    type: str
+    required: false
+    description: "Present only when exit_code=2 (e.g. spec_artifacts_missing, push_failed)"
+  tasks_total:
+    type: int
+    required: true
+    description: "Number of tasks parsed from openspec/tasks.md"
+  tasks_done:
+    type: int
+    required: true
+    description: "Tasks that passed their test"
+  tasks_failed:
+    type: int
+    required: true
+    description: "Tasks that exhausted retries without passing"
+  commit_hash:
+    type: str
+    required: true
+    description: "SHA of o-build's phase commit (40 hex). Empty if blocked before commit."
+tools:
+  - bash
+  - read_file
+category: backend
+domain: build
+---
+
+# o-build: Autonomous Implementation
+
+> Second phase. **Never ask the user anything.** State arrives via the remote
+> branch (relay, ADR-0001): clone fresh, read `openspec/`, implement, commit,
+> push. There is no `.orbit-state` file and no shared workspace.
+
+## Run
+
+### 1. Clone + checkout
+
+```bash
+git clone <gitlab_url> /tmp/o-build/repo
+cd /tmp/o-build/repo
+git checkout <branch>
+git pull --ff-only origin <branch>
+```
+
+- Branch missing on remote → `exit_code: 2`,
+  `block_reason: branch_not_on_remote`, stop.
+
+### 2. Self-verify upstream artifacts
+
+Check `openspec/proposal.md`, `openspec/design.md`, `openspec/tasks.md`
+all exist and are non-empty.
+
+- Any missing → `exit_code: 2`,
+  `block_reason: spec_artifacts_missing: openspec/<file> absent — did o-spec push?`,
+  stop. This is the guard against the old "spec committed but build found
+  nothing" failure: if you cannot see o-spec's artifacts in your clone,
+  block instead of inventing work.
+
+### 3. Parse tasks
+
+Read `openspec/tasks.md`. Parse every `- [ ]` line into a task
+(`file` + `intent`). `tasks_total` = the count. If `tasks.md` has zero
+tasks → `exit_code: 2`, `block_reason: tasks_empty`, stop.
+
+### 4. Per-task verification + implementation loop (sequential, inline)
+
+For each task, in order:
+
+1. **Identify or write a verification** for this task's intent.
+   - Repo has a test harness (jest / pytest / go test / etc.) → write a real
+     test. Run it; it should fail — red.
+   - No harness (static HTML/CSS, config, docs, single-file deliverables) →
+     the verification is a lightweight bash assertion: file exists, contains
+     the expected marker, valid JSON/HTML, structure check. This is NOT a
+     block (see Step 5).
+2. **Implement** the smallest change that makes the verification pass (green).
+3. **Run the task's verification** (and the broader suite if one exists).
+
+On failure (test still red, or implementation error):
+
+- **Rollback** only the files this task touched:
+  ```bash
+  git checkout -- <touched-files>
+  ```
+  Do NOT reset the whole working tree — prior tasks' committed work stays.
+- Retry this task up to **3** attempts (different approach each time).
+- After 3 failed attempts: increment `tasks_failed`, write a one-line note
+  into `openspec/tasks.md` under the task (`> failed: <reason>`), and
+  continue to the next task. Do not abort the whole phase on one task
+  failing — finish what you can, leave the rest for `o-review`.
+
+When a task passes: mark it `- [x]` in `openspec/tasks.md`, increment
+`tasks_done`.
+
+### 5. Hard-block checks
+
+`exit_code: 2` (no commit) only if:
+
+- A task has no verifiable outcome at all — you cannot state any check that
+  would distinguish done from not-done (`block_reason: task_unverifiable: <task>`).
+- A task's target file does not exist and cannot be created
+  (`block_reason: task_target_unresolvable: <task>`).
+
+No test harness is NOT a block — use lightweight bash assertions. A task
+simply being hard is NOT a block — it's `tasks_failed`, `exit_code: 1`.
+
+### 6. Commit + push
+
+```bash
+git add -A
+git -c user.name=mozi_agent -c user.email=mozi_agent@local \
+  commit -m "o-build: implement <tasks_done>/<tasks_total> tasks
+
+failed: <tasks_failed>"
+git push origin <branch>
+```
+
+- Committer is literal `mozi_agent`.
+- Push failure → `exit_code: 2`, `block_reason: push_failed: <one-liner>`,
+  stop.
+- `exit_code`: `0` if `tasks_failed == 0`; `1` if some tasks failed (work is
+  committed, `o-review` will audit). Never `0` with failed tasks.
+
+## Output
+
+Emit the JSON object matching `output:`. `commit_hash` = the pushed SHA, or
+empty if you blocked before committing.

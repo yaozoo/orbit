@@ -1,0 +1,79 @@
+name: feature-pipeline
+description: |
+  三阶段流水线 (o-spec / o-build / o-review): 从 GitLab 仓库 + 指定分支 +
+  需求文档 (DocSpec/ 下文件或文件夹) 自动产出 OpenSpec trio → TDD 实施 →
+  终审+自动修复, push 回指定分支. 节点间通过 **远程分支接力** (每节点
+  clone → 工作 → commit → push), 全程零人工确认; 失败由 exit_code=2 转人工.
+  只处理 feature / bugfix.
+
+inputs:
+  gitlab_url:
+    type: str
+    required: true
+    description: "GitLab clone URL (.git 后缀). 三阶段每节点都用它 clone 当前分支."
+  branch:
+    type: str
+    required: true
+    description: |
+      开发分支 (用户已先在 GitLab 拉好分支、在 DocSpec/ 放需求、推到远程).
+      三阶段都在该分支接力: clone → 工作 → commit → push 回该分支.
+  doc_url:
+    type: str
+    required: true
+    description: |
+      仓库内需求文档位置 (仅 o-spec 读). 相对路径 / GitLab UI URL;
+      文件夹则 glob **/*.md 与 **/*.txt. 找不到 → o-spec exit_code=2.
+
+output:
+  status:          $review.status
+  exit_code:       $review.exit_code
+  verdict:         $review.verdict
+  commit_hash:     $review.commit_hash
+  pushed_branch:   $review.pushed_branch
+  blocked_reason:  $review.block_reason
+
+model: sonnet
+
+nodes:
+  - id: spec
+    plugin: o-spec
+    retry:
+      max_attempts: 3
+      timeout_seconds: 1800
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch:     $mission.branch
+      doc_url:    $mission.doc_url
+
+  - id: build
+    plugin: o-build
+    retry:
+      max_attempts: 3
+      timeout_seconds: 3600
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch:     $mission.branch
+
+  - id: review
+    plugin: o-review
+    retry:
+      max_attempts: 3
+      timeout_seconds: 1800
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch:     $mission.branch
+
+edges:
+  - from: spec
+    to: build
+  - from: build
+    to: review
+  # 无条件边 + 下游自检: 每节点 clone 后若 openspec/ 缺失 → exit_code=2,
+  # block_reason 指回上游没 push. 不用 condition.expr 以避开 ctx. 拼写不确定性.
+  # 想在 build 失败时跳过 review, 可把第二条边换成:
+  #   - from: build
+  #     to: review
+  #     condition:
+  #       expr: 'ctx.build.exit_code == 0'
+
+success: review
