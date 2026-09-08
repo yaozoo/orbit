@@ -34,7 +34,7 @@ output:
   tasks_total:
     type: int
     required: true
-    description: "Number of tasks parsed from openspec/tasks.md"
+    description: "Number of tasks parsed from the spec dir's tasks.md"
   tasks_done:
     type: int
     required: true
@@ -76,19 +76,28 @@ git pull --ff-only origin <branch>
 
 ### 2. Self-verify upstream artifacts
 
-Check `openspec/proposal.md`, `openspec/design.md`, `openspec/tasks.md`
-all exist and are non-empty.
+Resolve the spec dir o-spec created — the newest subfolder under
+`openspec/`, keyed by its fixed-width timestamp prefix:
 
-- Any missing → `exit_code: 2`,
-  `block_reason: spec_artifacts_missing: openspec/<file> absent — did o-spec push?`,
+```bash
+spec_dir=$(ls -d openspec/*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
+```
+
+- No subfolder → `exit_code: 2`,
+  `block_reason: spec_artifacts_missing: no openspec/*/ dir — did o-spec push?`,
+  stop.
+- Then check `$spec_dir/proposal.md`, `$spec_dir/design.md`,
+  `$spec_dir/tasks.md` all exist and are non-empty. Any missing →
+  `exit_code: 2`,
+  `block_reason: spec_artifacts_missing: $spec_dir/<file> absent — did o-spec push?`,
   stop. This is the guard against the old "spec committed but build found
   nothing" failure: if you cannot see o-spec's artifacts in your clone,
   block instead of inventing work.
 
 ### 3. Parse tasks
 
-Read `openspec/tasks.md`. Parse every `- [ ]` line into a task
-(`file` + `intent`). `tasks_total` = the count. If `tasks.md` has zero
+Read `$spec_dir/tasks.md`. Parse every `- [ ]` line into a task
+(`file` + `intent`). `tasks_total` = the count. If `$spec_dir/tasks.md` has zero
 tasks → `exit_code: 2`, `block_reason: tasks_empty`, stop.
 
 ### 4. Per-task verification + implementation loop (sequential, inline)
@@ -102,7 +111,7 @@ For each task, in order:
      the verification is a lightweight bash assertion: file exists, contains
      the expected marker, valid JSON/HTML, structure check. This is NOT a
      block (see Step 5).
-   - Task touches UI and `openspec/figma/` exists → `read_file` the PNG
+   - Task touches UI and `$spec_dir/figma/` exists → `read_file` the PNG
      (`<n>.png`) the task maps to (multimodal — you see the image) and its
      `<n>.json` for exact text/colours/structure. Implement to match the
      render; quote text content verbatim from the node JSON. o-build has no
@@ -120,11 +129,11 @@ On failure (test still red, or implementation error):
   Do NOT reset the whole working tree — prior tasks' committed work stays.
 - Retry this task up to **3** attempts (different approach each time).
 - After 3 failed attempts: increment `tasks_failed`, write a one-line note
-  into `openspec/tasks.md` under the task (`> failed: <reason>`), and
+  into `$spec_dir/tasks.md` under the task (`> failed: <reason>`), and
   continue to the next task. Do not abort the whole phase on one task
   failing — finish what you can, leave the rest for `o-review`.
 
-When a task passes: mark it `- [x]` in `openspec/tasks.md`, increment
+When a task passes: mark it `- [x]` in `$spec_dir/tasks.md`, increment
 `tasks_done`.
 
 ### 5. Hard-block checks

@@ -115,6 +115,21 @@ Record `doc_type` and, if you made interpretive leaps, `assumptions[]` and a
 `confidence` below 1.0. Pure passthrough of an unambiguous task-list =
 `confidence: 1.0`, empty `assumptions`.
 
+Derive a short slug from the requirement (lowercase, kebab-case, a few
+words describing what it is about). Establish the spec dir:
+
+```bash
+spec_dir="openspec/$(date -u +%Y%m%d-%H%M%S)-<slug>"
+mkdir -p "$spec_dir"
+```
+
+The timestamp prefix is fixed-width and zero-padded, so lexical sort =
+chronological. Use `-u` (UTC) so the sort is stable across runners in
+different timezones — a local-time stamp can make a later requirement's
+dir sort before an earlier one. o-build/o-review locate this dir with
+`ls -d openspec/*/ | sort | tail -1` — they key off the timestamp, not the
+slug; the slug is for human browsing of the branch only.
+
 ### 3.5 Figma fetch (only if docs reference Figma)
 
 Scan the resolved docs for Figma URLs (match
@@ -141,19 +156,20 @@ Scan the resolved docs for Figma URLs (match
   Then for every Figma URL, make two API calls (both authenticated with
   `X-Figma-Token`, both against `api.figma.com`):
   ```bash
+  mkdir -p "$spec_dir/figma"
   # 1) node tree — text, layout, fills, component refs (the real "read")
   curl -sSL -H "X-Figma-Token: <figma_token>" \
     "https://api.figma.com/v1/files/<file_key>/nodes?ids=<node_id>" \
-    -o openspec/figma/<n>.json
+    -o "$spec_dir/figma/<n>.json"
   # 2) rendered PNG — images endpoint returns {"images":{"<id>":"<url>"}}
   curl -sSL -H "X-Figma-Token: <figma_token>" \
     "https://api.figma.com/v1/images/<file_key>?ids=<node_id>&format=png&scale=2" \
     -o /tmp/o-spec/figma-<n>.json
   img_url=$(grep -oE 'https://[^"]+' /tmp/o-spec/figma-<n>.json | head -1)
-  curl -sSL "$img_url" -o openspec/figma/<n>.png
+  curl -sSL "$img_url" -o "$spec_dir/figma/<n>.png"
   ```
-  Save the node JSON to `openspec/figma/<n>.json` and the PNG to
-  `openspec/figma/<n>.png` (create `openspec/figma/`). Reference each render
+  Save the node JSON to `$spec_dir/figma/<n>.json` and the PNG to
+  `$spec_dir/figma/<n>.png`. Reference each render
   in `design.md` beside the requirement it illustrates; quote any text
   content from the node JSON into the proposal so o-build can match it.
 
@@ -162,16 +178,16 @@ it; they see the committed renders via the branch (relay, ADR-0001).
 
 ### 4. Synthesize the OpenSpec trio
 
-Write three files under `openspec/` (create the dir):
+Write three files under `$spec_dir/` (the dir was created in Step 3):
 
-- `openspec/proposal.md` — what & why. One paragraph of context, then the
+- `$spec_dir/proposal.md` — what & why. One paragraph of context, then the
   proposed change. For a vague-requirement, derive this from the codebase +
   the doc. For a detailed-change, adopt the doc's intent. For a task-list,
   write a minimal proposal that frames the tasks.
-- `openspec/design.md` — how. Approach, trade-offs, and the req→file map
+- `$spec_dir/design.md` — how. Approach, trade-offs, and the req→file map
   from Step 3 (each requirement → the file(s)/module(s) it touches). Skip
   the map for a task-list that already carries design.
-- `openspec/tasks.md` — executable task list. Markdown checklist; each task
+- `$spec_dir/tasks.md` — executable task list. Markdown checklist; each task
   is one `- [ ]` line naming the file + intent. For a task-list input,
   light-validate and adopt. Derive from proposal/design for the other two
   types.

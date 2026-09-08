@@ -3,7 +3,7 @@ name: o-review
 description: |
   Review phase. Clones the mission branch (which now carries o-spec's openspec/
   and o-build's code commits), audits code against the OpenSpec trio, runs
-  tests, auto-fixes minor issues, writes openspec/REVIEW.md, then commits and
+  tests, auto-fixes minor issues, writes the spec dir's REVIEW.md, then commits and
   pushes. Use as the terminal node of the o-pipeline mission.
 kind: llm_skill
 input:
@@ -86,30 +86,43 @@ git pull --ff-only origin <branch>
 
 ### 2. Self-verify upstream artifacts
 
-Confirm `openspec/proposal.md`, `openspec/design.md`, `openspec/tasks.md`
-exist, and that there is committed code beyond o-spec's openspec commit
-(i.e. o-build actually ran).
+Resolve the spec dir o-spec created — the newest subfolder under
+`openspec/`, keyed by its fixed-width timestamp prefix:
 
+```bash
+spec_dir=$(ls -d openspec/*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
+```
+
+- No subfolder → `exit_code: 2`, `block_reason: spec_artifacts_missing`,
+  stop.
+- Confirm `$spec_dir/proposal.md`, `$spec_dir/design.md`,
+  `$spec_dir/tasks.md` exist.
 - Spec missing → `exit_code: 2`, `block_reason: spec_artifacts_missing`,
   stop.
-- No code beyond `openspec/` (o-build produced nothing) → `verdict: fail`,
-  `exit_code: 1` (not blocked — you can review an empty build; you just
-  fail it). Still write REVIEW.md and commit it.
+- Gauge whether o-build actually ran for THIS requirement by reading
+  `$spec_dir/tasks.md`: o-build marks each done task `- [x]` and writes a
+  `> failed:` note per exhausted task. No `- [x]` AND no `> failed:` notes
+  → o-build produced nothing → `verdict: fail`, `exit_code: 1` (not
+  blocked — you can review an empty build; you just fail it). Still write
+  REVIEW.md and commit it. Do NOT use "code beyond `$spec_dir/`" — on a
+  multi-requirement branch, prior requirements' committed source also sits
+  beyond this spec dir and would mask an empty build.
 
 ### 3. Audit
 
 Three axes, record each issue in `issues_found[]`
 (`{severity: high|med|low, file, line, message}`):
 
-- **Spec conformance** — does the code implement what `proposal.md` +
-  `tasks.md` describe? Each unchecked task in `tasks.md` is a `med` issue.
+- **Spec conformance** — does the code implement what
+  `$spec_dir/proposal.md` + `$spec_dir/tasks.md` describe? Each unchecked
+  task in `$spec_dir/tasks.md` is a `med` issue.
 - **Quality** — obvious bugs, error-handling gaps, injection/XSS/SQLi, dead
   code.
 - **Tests** — run the suite if one exists. No harness (static HTML/config)
   → re-run o-build's lightweight bash assertions or a structural check.
   Failing tests/assertions are `high` issues. Missing verification for
   implemented behavior is `med`.
-- **Visual conformance (only if `openspec/figma/` exists)** — `read_file`
+- **Visual conformance (only if `$spec_dir/figma/` exists)** — `read_file`
   each figma render (`<n>.png`) and compare the implemented UI against it:
   layout, text content, spacing, colour. o-review has no Figma token and
   never calls the API — it only consumes renders o-spec already fetched.
@@ -144,7 +157,7 @@ Move each fixed issue from `issues_found` (conceptually) into
 
 ### 6. Write REVIEW.md + commit + push
 
-Write `openspec/REVIEW.md`:
+Write `$spec_dir/REVIEW.md`:
 
 ```md
 # Review
