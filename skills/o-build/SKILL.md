@@ -80,11 +80,11 @@ Resolve the spec dir o-spec created — the newest subfolder under
 `openspec/`, keyed by its fixed-width timestamp prefix:
 
 ```bash
-spec_dir=$(ls -d openspec/*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
+spec_dir=$(ls -d openspec/[0-9]*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
 ```
 
 - No subfolder → `exit_code: 2`,
-  `block_reason: spec_artifacts_missing: no openspec/*/ dir — did o-spec push?`,
+  `block_reason: spec_artifacts_missing: no openspec/[0-9]*/ dir — did o-spec push?`,
   stop.
 - Then check `$spec_dir/proposal.md`, `$spec_dir/design.md`,
   `$spec_dir/tasks.md` all exist and are non-empty. Any missing →
@@ -99,6 +99,27 @@ spec_dir=$(ls -d openspec/*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
 Read `$spec_dir/tasks.md`. Parse every `- [ ]` line into a task
 (`file` + `intent`). `tasks_total` = the count. If `$spec_dir/tasks.md` has zero
 tasks → `exit_code: 2`, `block_reason: tasks_empty`, stop.
+
+### 3.5 Consume review feedback (only if REVIEW.md present)
+
+If `$spec_dir/REVIEW.md` exists, a prior `o-review` pass ran and wrote
+`## issues_remaining` — the work it explicitly handed back to you (this is
+a re-pass driven by a `needs-rework` feedback edge). Read that section.
+For each remaining issue, fold it into the work list instead of ignoring
+it:
+
+- Issue tied to a task already marked `- [x]` → re-open it: flip the task
+  back to `- [ ]` and annotate (`> review: <severity>: <message>`) so you
+  reprocess that task with the finding in mind. Without this the bug sits
+  on a checked task that Step 4 would otherwise skip.
+- Issue not tied to any task → add a new `- [ ]` line (file + intent from
+  the issue's `file`/`message`) under the related task or at the list end.
+- Issues that merely mirror already-`- [ ]` tasks → dedupe; they are
+  already in the work list, do not double-count or re-add.
+
+After folding, re-parse the updated `$spec_dir/tasks.md` so `tasks_total`
+and the pending list reflect the re-opened + added tasks before Step 4.
+Skip this step silently if no REVIEW.md exists (first pass).
 
 ### 4. Per-task verification + implementation loop (sequential, inline)
 
@@ -153,7 +174,7 @@ simply being hard is NOT a block — it's `tasks_failed`, `exit_code: 1`.
 ```bash
 git add -A
 git -c user.name=mozi_agent -c user.email=mozi_agent@local \
-  commit -m "o-build: implement <tasks_done>/<tasks_total> tasks
+  commit -m "o-build: implement <tasks_done>/<tasks_total> tasks [$(basename "$spec_dir")]
 
 failed: <tasks_failed>"
 git push origin <branch>

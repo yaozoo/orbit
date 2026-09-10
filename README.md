@@ -24,9 +24,14 @@ status, commit_hash, counts, verdict) — never file paths.
 
 | phase | reads | writes | commits |
 |---|---|---|---|
-| `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/{proposal,design,tasks}.md` (+ `openspec/figma/` renders) | the trio (+ renders) |
-| `o-build` | `openspec/` (+ `openspec/figma/` renders) | `src/`, `tests/`, updated `tasks.md` | code + tests |
-| `o-review` | `openspec/` + code (+ figma renders) | `openspec/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
+| `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/<spec_dir>/{proposal,design,tasks}.md` (+ `figma/` renders) | the trio (+ renders) |
+| `o-build` | `openspec/<spec_dir>/` (+ figma renders; `REVIEW.md` on a re-pass) | `src/`, `tests/`, updated `tasks.md` | code + tests |
+| `o-review` | `openspec/<spec_dir>/` + code (+ figma renders) | `openspec/<spec_dir>/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
+
+`<spec_dir>` is `openspec/<UTC-timestamp>-<slug>` — a per-requirement
+subfolder o-spec creates so multiple requirements can accumulate on one
+branch without overwriting each other. o-build/o-review locate it as the
+lexically-newest `openspec/[0-9]*/` dir (timestamp-prefixed).
 
 Each phase's `exit_code`: `0` success / `1` failure (leave for review) /
 `2` blocked (route to human). Every phase pushes; a failed push is a hard

@@ -22,8 +22,9 @@ was lost at the node boundary every time.
 - Every phase must push after its commit. A failed push is a hard
   `exit_code: 2` (`block_reason: push_failed`) — not a soft defer — because
   the next phase's clone depends on it.
-- Artifact locations are repo-relative conventions (`openspec/`, not
-  absolute paths), so any node finds them in its own clone.
+- Artifact locations are repo-relative conventions (`openspec/<spec_dir>/`,
+  located by timestamp-prefix sort, not absolute paths), so any node finds
+  them in its own clone.
 - Nodes re-clone per phase (3 clones per run). Accepted cost: seconds to
   minutes, and the only model that does not depend on an unconfirmed
   shared-filesystem guarantee from the platform.

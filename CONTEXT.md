@@ -19,10 +19,13 @@ across nodes in a run.
 _Avoid_: shared workspace, workspace handoff, state file.
 
 **OpenSpec trio**:
-The three artifact files `o-spec` writes under `openspec/`:
-`proposal.md` (what & why), `design.md` (how), `tasks.md` (executable task
-list with done-checks). Dropped from upstream OpenSpec: spec deltas, the
-archive workflow, and the ledger.
+The three artifact files `o-spec` writes under a per-requirement spec dir
+`openspec/<UTC-timestamp>-<slug>/`: `proposal.md` (what & why), `design.md`
+(how), `tasks.md` (executable task list with done-checks). Each requirement
+gets its own spec dir so multiple can accumulate on one branch; o-build/
+o-review locate the newest by lexical sort of the timestamp prefix.
+Dropped from upstream OpenSpec: spec deltas, the archive workflow, and the
+ledger.
 _Avoid_: change package, openspec change.
 
 **working clone**:
@@ -60,6 +63,6 @@ _Avoid_: certainty, score.
 **phase commit**:
 The single commit each phase makes to the mission-input branch at the end of
 its work. `o-spec` commits the OpenSpec trio; `o-build` commits code + tests +
-updated `tasks.md`; `o-review` commits fixes + `openspec/REVIEW.md`. Every
+updated `tasks.md`; `o-review` commits fixes + the spec dir's `REVIEW.md`. Every
 phase commit is followed by a push; a failed push is a hard `exit_code: 2`.
 _Avoid_: phase checkpoint.

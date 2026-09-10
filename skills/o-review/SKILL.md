@@ -90,7 +90,7 @@ Resolve the spec dir o-spec created — the newest subfolder under
 `openspec/`, keyed by its fixed-width timestamp prefix:
 
 ```bash
-spec_dir=$(ls -d openspec/*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
+spec_dir=$(ls -d openspec/[0-9]*/ 2>/dev/null | sort | tail -1 | sed 's|/$||')
 ```
 
 - No subfolder → `exit_code: 2`, `block_reason: spec_artifacts_missing`,
@@ -180,7 +180,7 @@ tests: <pass|fail|n/a>
 ```bash
 git add -A
 git -c user.name=mozi_agent -c user.email=mozi_agent@local \
-  commit -m "o-review: verdict=<verdict>, fixed=<len issues_fixed>, remaining=<len issues_remaining>"
+  commit -m "o-review: verdict=<verdict> [$(basename "$spec_dir")], fixed=<len issues_fixed>, remaining=<len issues_remaining>"
 git push origin <branch>
 ```
 

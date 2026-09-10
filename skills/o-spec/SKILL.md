@@ -115,8 +115,11 @@ Record `doc_type` and, if you made interpretive leaps, `assumptions[]` and a
 `confidence` below 1.0. Pure passthrough of an unambiguous task-list =
 `confidence: 1.0`, empty `assumptions`.
 
-Derive a short slug from the requirement (lowercase, kebab-case, a few
-words describing what it is about). Establish the spec dir:
+Derive a short slug from the requirement (ASCII lowercase, kebab-case, a
+few words). Non-English requirements must be translated to English
+keywords (e.g. 用户信息按钮 → `user-info-button`) so the slug stays ASCII
+— non-ASCII would make same-second `sort` locale-dependent and is
+fragile in git/shell paths. Establish the spec dir:
 
 ```bash
 spec_dir="openspec/$(date -u +%Y%m%d-%H%M%S)-<slug>"
@@ -127,8 +130,10 @@ The timestamp prefix is fixed-width and zero-padded, so lexical sort =
 chronological. Use `-u` (UTC) so the sort is stable across runners in
 different timezones — a local-time stamp can make a later requirement's
 dir sort before an earlier one. o-build/o-review locate this dir with
-`ls -d openspec/*/ | sort | tail -1` — they key off the timestamp, not the
-slug; the slug is for human browsing of the branch only.
+`ls -d openspec/[0-9]*/ | sort | tail -1` — they key off the timestamp
+prefix, not the slug; the `[0-9]*` filter ignores any non-spec dirs under
+`openspec/` (e.g. a stray `archive/`). The slug is for human browsing of
+the branch only.
 
 ### 3.5 Figma fetch (only if docs reference Figma)
 
@@ -229,7 +234,7 @@ when you genuinely cannot proceed.
 ```bash
 git add openspec/
 git -c user.name=mozi_agent -c user.email=mozi_agent@local \
-  commit -m "o-spec: synthesize openspec trio
+  commit -m "o-spec: synthesize <slug> openspec trio
 
 doc_type: <doc_type>
 confidence: <confidence>"
