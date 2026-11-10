@@ -31,12 +31,12 @@ inputs:
       空 → exit_code=2 figma_link_without_token; 失效 → figma_token_invalid.
 
 output:
-  status:          $review.status
-  exit_code:       $review.exit_code
-  verdict:         $review.verdict
-  commit_hash:     $review.commit_hash
-  pushed_branch:   $review.pushed_branch
-  blocked_reason:  $review.block_reason
+  status: $review.status
+  exit_code: $review.exit_code
+  verdict: $review.verdict
+  commit_hash: $review.commit_hash
+  pushed_branch: $review.pushed_branch
+  blocked_reason: $review.block_reason
 
 model: sonnet
 
@@ -47,10 +47,11 @@ nodes:
       max_attempts: 3
     execution_timeout: 1800
     inputs:
-      gitlab_url:  $mission.gitlab_url
-      branch:     $mission.branch
-      doc_url:    $mission.doc_url
+      gitlab_url: $mission.gitlab_url
+      branch: $mission.branch
+      doc_url: $mission.doc_url
       figma_token: $mission.figma_token?
+    model: glm-5.3
 
   - id: build
     plugin: o-build
@@ -59,7 +60,8 @@ nodes:
     execution_timeout: 3600
     inputs:
       gitlab_url: $mission.gitlab_url
-      branch:     $mission.branch
+      branch: $mission.branch
+    model: glm-5.3
 
   - id: review
     plugin: o-review
@@ -68,7 +70,8 @@ nodes:
     execution_timeout: 1800
     inputs:
       gitlab_url: $mission.gitlab_url
-      branch:     $mission.branch
+      branch: $mission.branch
+    model: glm-5.3
 
 edges:
   - from: spec
