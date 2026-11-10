@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""decision_check.py：澄清决策闸门的确定性部分（编号 / 答复解析 / 默认取推荐 / 落盘 / 计数）。
+
+设计原则照抄 prd-repo-decision-gate-v3 的 scripts/decision_check.py（MIT 同源思路，
+本次重写为单仓语义）：机械部分归脚本，LLM 只做语义判断（挑出哪些是"人必须拍板的决策项"）。
+理由与该插件一致——pending_count / rerun_count 驱动回环与闸门行为，算错即无谓重跑
+或"未落实的决策被放行"。
+
+用法：decision_check.py --context <ctx.json>
+  ctx = {
+    "spec_dir": "/abs/path/openspec/20260101-000000-slug",  # decisions.md 与状态落在这里
+    "decisions": [ {id?, key, question, options, recommendation_key,
+                    recommendation_reason, evidence, impact?} ],   # LLM 挑刺产出，可空
+    "approval_feedback": "D1=A, D2=自定:xxx, D3=待查",            # 可空（上下文 _approval_feedback）
+    "max_decisions": 12,                                         # 可选，本轮决策项上限（1..20）
+    "max_rounds": 2                                              # 可选，澄清轮次硬上限（1..5，默认 2）
+  }
+  → 落 <spec_dir>/{decisions.json, decisions.md}，
+    并在 ctx 同目录写 decision_output.json（decision_sheet_path / items /
+    pending_count / answered_count / deferred_count / round / round_exhausted /
+    feedback_unparsed），LLM 原样取用。
+
+答复语法（人在 amend feedback 里写）：
+  D1=A            选 A 选项
+  D2=自定:文字     自定义答案（文字可含逗号/分号/换行，不截断）
+  D3=待查          显式推迟（deferred：不阻塞、不触发下一轮）
+  未提到的项        自动取 recommended option（decided_by=recommended）
+
+轮次闸：平台不限制"人反复 amend"的次数（审批循环不消耗 max_attempts，且没有上限），
+所以"最多两轮"必须由本脚本兜底——第 3 轮执行时 exit 1 且不写任何文件。
+
+退出码：0=完成；1=decisions 形状非法或轮次已耗尽（未写任何文件，修正后重跑）；
+2=脚本故障（fail-closed）。
+"""
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+DEFER_TEXT = '待查：未定论，下游按推荐实现并保留风险登记'
+MAX_DECISIONS = 12
+MAX_ROUNDS = 2
+OUT_KEYS = ('id', 'key', 'question', 'options', 'recommendation_key',
+            'recommendation_reason', 'evidence', 'impact', 'chosen_key',
+            'custom_text', 'decided_by', 'note')
+# 进 output 的字段（人只在审批面板里看到这些，必须自足）
+REPORT_KEYS = ('decision_sheet_path', 'spec_dir', 'items', 'pending_count',
+               'answered_count', 'deferred_count', 'round', 'max_rounds',
+               'round_exhausted', 'sheet_markdown', 'feedback_unparsed')
+ANS = re.compile(r'(?<![A-Za-z0-9])D(\d+)\s*[=＝]', re.I)
+SEPS = ' \t\r\n,;，；'
+
+
+def load_state(path):
+    if not path.is_file():
+        return []
+    data = json.loads(path.read_text(encoding='utf-8'))
+    items = data.get('items') if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError('decisions.json 结构非法（缺 items 数组）')
+    return items
+
+
+def validate(decisions, existing_keys, max_decisions=MAX_DECISIONS):
+    errs = []
+    new = 0
+    seen = set()
+    for i, d in enumerate(decisions or []):
+        p = 'decisions[{}]'.format(i)
+        if not isinstance(d, dict):
+            errs.append('{} 必须是对象'.format(p))
+            continue
+        key = d.get('key')
+        if not isinstance(key, str) or not key.strip():
+            errs.append('{} key 不得为空'.format(p))
+        elif key in seen:
+            errs.append('{} key 重复：{}'.format(p, key))
+        else:
+            seen.add(key)
+            if key not in existing_keys:
+                new += 1
+        if not isinstance(d.get('question'), str) or not d['question'].strip():
+            errs.append('{} question 不得为空'.format(p))
+        opts = d.get('options')
+        okeys = []
+        if not isinstance(opts, list) or len(opts) < 2:
+            errs.append('{} options 至少 2 项'.format(p))
+        else:
+            for j, o in enumerate(opts):
+                if not isinstance(o, dict) or any(
+                        not isinstance(o.get(k), str) or not o[k].strip()
+                        for k in ('key', 'label', 'impact')):
+                    errs.append('{} options[{}] 须含非空 key/label/impact'.format(p, j))
+                else:
+                    okeys.append(o['key'])
+            if len(okeys) != len(set(okeys)):
+                errs.append('{} options key 重复'.format(p))
+        rk = d.get('recommendation_key')
+        if rk is not None and rk not in okeys:
+            errs.append('{} recommendation_key={} 不在 options 内'.format(p, rk))
+        ev = d.get('evidence')
+        if not isinstance(ev, list) or not ev:
+            errs.append('{} evidence 不得为空（每项 {{claim,verified,ref}}）'.format(p))
+        else:
+            for j, e in enumerate(ev):
+                if not isinstance(e, dict) or not isinstance(e.get('claim'), str) \
+                        or not isinstance(e.get('verified'), bool) \
+                        or not isinstance(e.get('ref'), str):
+                    errs.append('{} evidence[{}] 须为 {{claim:str, verified:bool, ref:str}}'.format(p, j))
+                elif e['verified'] and not e['ref'].strip():
+                    errs.append('{} evidence[{}] verified=true 必须给 ref'.format(p, j))
+        im = d.get('impact')
+        if im is not None and not isinstance(im, str):
+            errs.append('{} impact 必须是字符串'.format(p))
+    if new > max_decisions:
+        errs.append('新增决策项 {} 条，超过上限 {}（宁缺毋滥）'.format(new, max_decisions))
+    return errs
+
+
+def parse_feedback(text):
+    """返回 ([(id, 原始片段)], [无法归属的片段])。片段 = 两个 Dn= 之间的原文，
+    因此"自定:"后的文字可含逗号/分号/换行。"""
+    text = text or ''
+    ms = list(ANS.finditer(text))
+    answers, stray = [], []
+    pre = text[:ms[0].start()] if ms else text
+    if pre.strip(SEPS):
+        stray.append(pre.strip(SEPS))
+    for i, m in enumerate(ms):
+        end = ms[i + 1].start() if i + 1 < len(ms) else len(text)
+        answers.append(('D' + m.group(1), text[m.end():end].strip().rstrip(SEPS).strip()))
+    return answers, stray
+
+
+def apply_answers(items, answers):
+    by_id = {it['id']: it for it in items}
+    stray = []
+    for iid, val in answers:
+        it = by_id.get(iid)
+        if it is None:
+            stray.append('{}={}：无此编号'.format(iid, val))
+            continue
+        m = re.match(r'^自定\s*[:：]\s*(.+)$', val, re.S)
+        if m and m.group(1).strip():
+            it['chosen_key'], it['custom_text'], it['decided_by'] = 'custom', m.group(1).strip(), 'human'
+        elif val == '待查':
+            it['chosen_key'], it['decided_by'] = 'defer', 'human'
+        else:
+            keymap = {o['key'].lower(): o['key'] for o in it['options']}
+            if val.lower() in keymap:
+                it['chosen_key'], it['decided_by'] = keymap[val.lower()], 'human'
+            else:
+                it['note'] = '无法解析的答复片段：{}（保持原选择）'.format(val)
+    return stray
+
+
+def settle_defaults(it):
+    if it.get('decided_by') == 'human':
+        return
+    rk = it.get('recommendation_key')
+    if rk:
+        it['chosen_key'], it['decided_by'] = rk, 'recommended'
+    else:
+        it['chosen_key'], it['decided_by'] = 'defer', 'recommended'
+
+
+def binding(it):
+    ck = it['chosen_key']
+    if ck == 'custom':
+        return '自定义', it.get('custom_text') or ''
+    if ck == 'defer':
+        return '待查', DEFER_TEXT
+    for o in it['options']:
+        if o['key'] == ck:
+            return o['label'], '{}（{}）'.format(o['label'], o['impact'])
+    return ck, ck
+
+
+def cell(s):
+    return str(s).replace('|', '\\|').replace('\n', ' ')
+
+
+def render_md(items, stray, round_no):
+    out = ['# 待你决策清单（第 {} 轮）'.format(round_no), '',
+           '怎样回复：点 **amend**，feedback 写 `D1=A, D2=自定:..., D3=待查`。',
+           '没提到的项**自动按推荐**执行；`待查` 表示推迟（不阻塞下游，留待后续）。',
+           '选项里的 ⭐ 是本轮推荐。证据标 ⚠️未核实 的，表示推断而非亲自读到的原文。', '']
+    if stray:
+        out += ['**未能解析的答复片段（未生效）**：'] + ['- ' + s for s in stray] + ['']
+    if not items:
+        out.append('本轮无待决项——全部歧义已由证据自解（见 assumptions）。')
+        return '\n'.join(out) + '\n'
+    for it in items:
+        title = it['question'].strip().splitlines()[0][:40] if it['question'].strip() else it['id']
+        out += ['## {}　{}'.format(it['id'], title),
+                '**问题**　' + it['question'],
+                '**为什么问不了**　' + (it.get('impact') or '（未填写）'),
+                '**证据**　' + (' / '.join(
+                    ('✅已核实：{}（{}）'.format(e['claim'], e['ref']) if e.get('verified')
+                     else '⚠️未核实：{}'.format(e['claim'])) for e in it['evidence']) or '无'),
+                '**选项**　', '| key | 做法 | 影响 | 推荐 |', '|---|---|---|---|']
+        rec = it.get('recommendation_key')
+        for o in it['options']:
+            star = '⭐' if o['key'] == rec else ''
+            out.append('| {} | {} | {} | {} |'.format(
+                cell(o['key']), cell(o['label']), cell(o['impact']), star))
+        out += ['**推荐理由**　{}'.format(it['recommendation_reason'])
+                if it.get('recommendation_reason') else '**推荐理由**　无',
+                '**当前采用**　{}（{}）'.format(
+                    it['chosen_key'], '人已答复' if it['decided_by'] == 'human' else '暂按推荐'), '']
+        if it.get('note'):
+            out += ['**备注**　' + it['note'], '']
+    return '\n'.join(out) + '\n'
+
+
+def atomic_write(path, text):
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def run(ctx):
+    spec_dir = ctx.get('spec_dir')
+    if not isinstance(spec_dir, str) or not spec_dir:
+        raise ValueError('context 缺 spec_dir')
+    ddir = Path(spec_dir).resolve()
+    state_path = ddir / 'decisions.json'
+    items = load_state(state_path)
+    by_key = {it.get('key'): it for it in items}
+
+    mr = ctx.get('max_rounds')
+    mr = mr if isinstance(mr, int) and not isinstance(mr, bool) and 1 <= mr <= 5 else None
+    # 轮次闸：状态文件已记到第 N 轮 → 本次是第 N+1 轮；超过 max_rounds 就拒。
+    # 平台不限制"人反复 amend"的次数（审批循环不消耗 max_attempts 且无上限），
+    # 所以这个闸是"最多两轮"的唯一强制点。
+    prev_round = 0
+    prev_max = None
+    if state_path.is_file():
+        try:
+            st = json.loads(state_path.read_text(encoding='utf-8'))
+            prev_round = int(st.get('round') or 0)
+            prev_max = st.get('max_rounds')
+            if not isinstance(prev_max, int) or isinstance(prev_max, bool):
+                prev_max = None
+        except Exception:
+            prev_round, prev_max = 0, None
+    # 轮次预算一经设定即随状态文件继承：后续轮次不传 max_rounds 时沿用上一轮的值，
+    # 传入时只能收紧不能放宽——否则第二轮漏传参数就会绕过预算。
+    if mr is None:
+        mr = prev_max if prev_max is not None else MAX_ROUNDS
+    elif prev_max is not None:
+        mr = min(mr, prev_max)
+    round_no = prev_round + 1
+    if round_no > mr:
+        return None, ['澄清轮次已耗尽：本次是第 {} 轮，上限 {} 轮。'
+                      '不再开新问题、不再接受新答复——请人工决定继续还是终止 run。'
+                      .format(round_no, mr)]
+
+    md = ctx.get('max_decisions')
+    md = md if isinstance(md, int) and not isinstance(md, bool) and 1 <= md <= 20 else MAX_DECISIONS
+    errs = validate(ctx.get('decisions'), set(by_key), md)
+    if errs:
+        return None, errs
+
+    maxn = max([int(m.group(1)) for it in items
+                for m in [re.match(r'^D(\d+)$', str(it.get('id')))] if m] or [0])
+    for d in ctx.get('decisions') or []:
+        if d['key'] in by_key:
+            continue                       # 已有 key 不改号，沿用旧选择
+        maxn += 1
+        d.update({'id': 'D{}'.format(maxn), 'chosen_key': None, 'custom_text': '',
+                  'decided_by': None, 'note': ''})
+        items.append(d)
+        by_key[d['key']] = d
+
+    for it in items:
+        it['note'] = ''
+        it.setdefault('custom_text', '')
+    answers, stray = parse_feedback(ctx.get('approval_feedback'))
+    for it in items:                       # 先给默认，再让人的答复覆盖
+        settle_defaults(it)
+    stray += apply_answers(items, answers)
+
+    answered = sum(1 for it in items if it['decided_by'] == 'human' and it['chosen_key'] != 'defer')
+    deferred = sum(1 for it in items if it['chosen_key'] == 'defer')
+    pending = sum(1 for it in items if it['decided_by'] == 'recommended')
+
+    ddir.mkdir(parents=True, exist_ok=True)
+    atomic_write(state_path, json.dumps({'items': items, 'round': round_no,
+                                         'max_rounds': mr},
+                                        ensure_ascii=False, indent=2))
+    sheet = ddir / 'decisions.md'
+    atomic_write(sheet, render_md(items, stray, round_no))
+    report = {'decision_sheet_path': str(sheet), 'spec_dir': str(ddir),
+              'items': [{k: it.get(k) for k in OUT_KEYS} for it in items],
+              'pending_count': pending, 'answered_count': answered,
+              'deferred_count': deferred, 'round': round_no,
+              'max_rounds': mr, 'round_exhausted': round_no >= mr,
+              # 人只能在审批面板里看到节点 output，看不到文件——所以 output 必须自足。
+              # sheet_markdown 是给人读的完整清单原文，直接进 output。
+              'sheet_markdown': render_md(items, stray, round_no),
+              'feedback_unparsed': stray}
+    return report, []
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--context', required=True)
+    args = ap.parse_args()
+    ctx_path = Path(args.context)
+    report, errs = run(json.loads(ctx_path.read_text(encoding='utf-8')))
+    if errs:
+        print('decision_check.py 拒绝执行（未写任何文件）：', file=sys.stderr)
+        for e in errs:
+            print('  - ' + e, file=sys.stderr)
+        return 1
+    (ctx_path.parent / 'decision_output.json').write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    print('items={} pending={} answered={} deferred={} round={}/{}'.format(
+        len(report['items']), report['pending_count'], report['answered_count'],
+        report['deferred_count'], report['round'], report['max_rounds']))
+    for s in report['feedback_unparsed']:
+        print('  未能解析的答复片段：' + s)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print('decision_check.py: 脚本故障（fail-closed，exit 2）: {!r}'.format(exc), file=sys.stderr)
+        sys.exit(2)

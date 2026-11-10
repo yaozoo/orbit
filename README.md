@@ -5,6 +5,12 @@ into a mission to take a GitLab branch + a requirement doc and produce
 implemented, reviewed code. No in-skill human confirmation; failure routes to
 a human via `exit_code: 2`.
 
+Optionally, a fourth plugin — `o-spec-clarify` — inserts a human decision gate
+between `o-spec` and `o-build`: the ambiguities the spec phase could not
+settle from evidence become multiple-choice questions with a recommended
+option, and the human answers them in the platform's approval panel. See
+[ADR-0002](docs/adr/0002-interactive-clarification-via-human-gate.md).
+
 ## Why this exists
 
 The prior `y-spec`/`y-build`/`y-verify` design kept failing with *"spec
@@ -20,11 +26,12 @@ Every phase clones the mission-input branch fresh, works, commits, and
 commit. Inter-node output JSON carries only small contracts (exit_code,
 status, commit_hash, counts, verdict) — never file paths.
 
-## The three phases
+## The phases
 
 | phase | reads | writes | commits |
 |---|---|---|---|
 | `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/<spec_dir>/{proposal,design,tasks}.md` (+ `figma/` renders) | the trio (+ renders) |
+| `o-spec-clarify` | the trio (+ the human's answers) | `openspec/<spec_dir>/decisions.md` + answers folded into the trio | decisions + amended trio |
 | `o-build` | `openspec/<spec_dir>/` (+ figma renders; `REVIEW.md` on a re-pass) | `src/`, `tests/`, updated `tasks.md` | code + tests |
 | `o-review` | `openspec/<spec_dir>/` + code (+ figma renders) | `openspec/<spec_dir>/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
 
@@ -39,8 +46,14 @@ Each phase's `exit_code`: `0` success / `1` failure (leave for review) /
 
 ## Wire it on mozi
 
-Publish the three plugins (Plugins → + publish → zip each `skills/o-*` dir),
-then register this mission: [`examples/feature-pipeline.yaml`](examples/feature-pipeline.yaml).
+Publish the plugins (Plugins → + publish → zip each `skills/o-*` dir), then
+register a mission:
+
+- [`examples/feature-pipeline.yaml`](examples/feature-pipeline.yaml) — the
+  three-phase, fully autonomous pipeline.
+- [`examples/feature-pipeline-interactive.yaml`](examples/feature-pipeline-interactive.yaml) —
+  the same pipeline with the `o-spec-clarify` human gate between `o-spec` and
+  `o-build`.
 
 The mission inputs (`gitlab_url`, `branch`, `doc_url`, and optional
 `figma_token`) are filled on Start Run. `branch` must already exist on
@@ -49,15 +62,41 @@ pushes, then configures the fields on the platform. `figma_token` is only
 read by `o-spec`; leave it blank when the docs have no Figma links — if
 they do, a blank or invalid token hard-blocks (`exit_code: 2`).
 
+### The interactive variant
+
+`o-spec-clarify` runs with `human_approval: true`, so the run pauses with the
+decision sheet in the approval panel. The human answers with **amend** and
+feedback like `D1=A, D2=自定:..., D3=待查`; items not mentioned fall back to
+their recommended option, so approving without answering is a valid (if
+unreviewed) outcome. At most **two** clarification rounds — the plugin's
+script enforces the budget, because the platform does not bound how often a
+human may amend.
+
+Two operational caveats: a waiting run occupies one of the platform's
+`max_active_runs` slots (default 8), and the human only sees the node's
+output in the approval panel, so the decision sheet is carried in the output
+itself rather than as a file path.
+
 ## Files
 
 ```
-skills/o-spec/SKILL.md      # requirements analysis → OpenSpec trio
-skills/o-build/SKILL.md     # inline verification + implementation, per-task rollback
-skills/o-review/SKILL.md    # audit + auto-fix → REVIEW.md verdict
-examples/feature-pipeline.yaml   # the mission接入
+skills/o-spec/SKILL.md              # requirements analysis → OpenSpec trio
+skills/o-spec-clarify/SKILL.md      # decision items → human gate → answers folded back
+skills/o-spec-clarify/scripts/decision_check.py   # numbering / answer parsing / round gate
+skills/o-build/SKILL.md             # inline verification + implementation, per-task rollback
+skills/o-review/SKILL.md            # audit + auto-fix → REVIEW.md verdict
+examples/feature-pipeline.yaml           # the autonomous mission接入
+examples/feature-pipeline-interactive.yaml # the mission with the human gate
 docs/adr/0001-relay-state-via-remote-branch.md
-CONTEXT.md                  # glossary
+docs/adr/0002-interactive-clarification-via-human-gate.md
+GLOSSARY.md                  # glossary
+CONTEXT.md                  # glossary (legacy — see GLOSSARY.md)
+```
+
+Run the decision script's self-tests with:
+
+```bash
+python3 skills/o-spec-clarify/scripts/test_decision_check.py
 ```
 
 ## Note on `tools`

@@ -1,5 +1,9 @@
 # o-pipeline
 
+> **Migrated.** The canonical glossary is now [GLOSSARY.md](GLOSSARY.md),
+> which follows the domain-modeling format and adds the interactive
+> clarification vocabulary. This file is kept for its history.
+
 Three independent plugins (`o-spec`, `o-build`, `o-review`) that chain into a
 mozi mission to take a GitLab branch + a requirement doc and produce
 implemented, reviewed code — with no in-skill human confirmation.

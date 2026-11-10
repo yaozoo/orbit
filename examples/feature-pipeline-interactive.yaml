@@ -1,0 +1,140 @@
+# 交互式澄清版流水线（阶段一含人工决策闸）。
+#
+# 与 examples/feature-pipeline.yaml 的唯一结构差异：在 spec 与 build 之间插入
+# 一个 o-spec-clarify 节点，挂 human_approval。o-spec 仍是全自动起草；澄清节点把
+# "证据答不了、必须人拍板"的歧义做成选择题清单，人在审批面板里答，答复回灌到
+# spec 目录后才放行 o-build。详见 docs/adr/0002-interactive-clarification-via-human-gate.md。
+#
+# ⚠️ 轮次上限由脚本兜底（max_rounds=2），不由平台兜底：平台不限制人反复 amend
+#    的次数（审批循环不消耗 max_attempts 且无上限）。max_approval_timeouts 只管
+#    "人沉默"这一种情况。
+# ⚠️ 本 mission 会把 run 挂在 running 状态等人审批。平台 max_active_runs 默认 8，
+#    8 个 run 同时等人会堵死平台。
+name: feature-pipeline-interactive
+description: |
+  三阶段流水线 + 人工澄清闸 (o-spec / o-spec-clarify / o-build / o-review):
+  从 GitLab 仓库 + 指定分支 + 需求文档 (DocSpec/ 下文件或文件夹) 自动产出
+  OpenSpec trio → **把证据答不了的歧义做成选择题交人拍板**（人没答的项自动取
+  推荐）→ TDD 实施 → 终审+自动修复, push 回指定分支. 节点间通过 **远程分支
+  接力** (每节点 clone → 工作 → commit → push); 最多两轮澄清.
+
+inputs:
+  gitlab_url:
+    type: str
+    required: true
+    description: "GitLab clone URL (.git 后缀). 各节点都用它 clone 当前分支."
+  branch:
+    type: str
+    required: true
+    description: |
+      开发分支 (用户已先在 GitLab 拉好分支、在 DocSpec/ 放需求、推到远程).
+      各阶段都在该分支接力: clone → 工作 → commit → push 回该分支.
+  doc_url:
+    type: str
+    required: true
+    description: |
+      仓库内需求文档位置 (仅 o-spec 读). 相对路径 / GitLab UI URL;
+      文件夹则 glob **/*.md 与 **/*.txt. 找不到 → o-spec exit_code=2.
+  figma_token:
+    type: str
+    required: false
+    description: |
+      Figma personal access token (仅 o-spec 用). 可选: 文档无 figma 链接
+      则留空. 一旦 o-spec 在文档里检出 figma 链接, 此 token 必填且必须有效;
+      空 → exit_code=2 figma_link_without_token; 失效 → figma_token_invalid.
+
+output:
+  status: $review.status
+  exit_code: $review.exit_code
+  verdict: $review.verdict
+  commit_hash: $review.commit_hash
+  pushed_branch: $review.pushed_branch
+  blocked_reason: $review.block_reason
+  # 澄清阶段的账（人在审批面板里答了什么、有多少项没人答）
+  clarify_round: $clarify.round?
+  clarify_decisions_count: $clarify.decisions_count?
+  clarify_answered_count: $clarify.answered_count?
+  clarify_deferred_count: $clarify.deferred_count?
+  clarify_pending_count: $clarify.pending_count?
+  decision_sheet_path: $clarify.decision_sheet_path?
+
+model: sonnet
+
+nodes:
+  - id: spec
+    plugin: o-spec
+    retry:
+      max_attempts: 3
+    execution_timeout: 1800
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch: $mission.branch
+      doc_url: $mission.doc_url
+      figma_token: $mission.figma_token?
+    model: glm-5.3
+
+  # 人工澄清闸：节点跑完 → output 被扣留 → 等人 approve/reject/amend。
+  # amend 的 feedback 会被注入本节点上下文并重跑本节点（最多两轮，脚本兜底）。
+  - id: clarify
+    plugin: o-spec-clarify
+    execution_timeout: 1800
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch: $mission.branch
+    model: glm-5.3
+    human_approval: true
+    approval_criteria: |
+      待你决策清单：每项是证据答不了、必须人拍板的点。
+      审阅方式：看 output 的 sheet_markdown；点 approve = 全部采纳推荐；
+      点 amend 并在 feedback 写 "D1=A, D2=自定:..., D3=待查" 只改指定项；
+      点 reject = 整份需求理解方向错了，需要重来。
+      没提到的项自动按推荐执行，不会阻塞下游。
+    approval_timeout: 86400
+    max_approval_timeouts: 2
+
+  - id: build
+    plugin: o-build
+    retry:
+      max_attempts: 3
+    execution_timeout: 3600
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch: $mission.branch
+    model: glm-5.3
+
+  - id: review
+    plugin: o-review
+    retry:
+      max_attempts: 3
+    execution_timeout: 1800
+    inputs:
+      gitlab_url: $mission.gitlab_url
+      branch: $mission.branch
+    model: glm-5.3
+
+edges:
+  - from: spec
+    to: clarify
+  - from: clarify
+    to: build
+  - from: build
+    to: review
+  # 无条件边 + 下游自检: 每节点 clone 后若 openspec/<spec_dir>/ 缺失 → exit_code=2,
+  # block_reason 指回上游没 push. 不用 condition.expr 以避开 ctx. 拼写不确定性.
+  #
+  # 澄清闸失败（轮次耗尽 / 脚本故障）时不要放行 build——上面的边是无条件的，
+  # 但 clarify 节点失败会中断 run，后续节点不会 dispatch。若要"澄清失败也继续
+  # build（按推荐实现）"，把 clarify→build 换成带条件的边:
+  #   - from: clarify
+  #     to: build
+  #     condition:
+  #       expr: 'ctx.clarify.exit_code == 0'
+  #
+  # 想接 needs-rework 反馈环 (review→build), o-build 会读 spec_dir/REVIEW.md
+  # 的 issues_remaining 重新处理, 加一条:
+  #   - from: review
+  #     to: build
+  #     condition:
+  #       expr: 'ctx.review.verdict == "needs-rework"'
+
+success: review
