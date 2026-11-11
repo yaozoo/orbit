@@ -38,7 +38,7 @@ output:
   pushed_branch: $review.pushed_branch
   blocked_reason: $review.block_reason
 
-model: sonnet
+model: deepseek-v4.1-flash-1017
 
 nodes:
   - id: spec

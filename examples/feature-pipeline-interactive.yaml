@@ -59,7 +59,7 @@ output:
   clarify_pending_count: $clarify.pending_count?
   decision_sheet_path: $clarify.decision_sheet_path?
 
-model: sonnet
+model: deepseek-v4.1-flash-1017
 
 nodes:
   - id: spec
@@ -83,7 +83,7 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
-    model: glm-5.3
+    model: deepseek-v4.1-flash-1017
     human_approval: true
     approval_criteria: |
       待你决策清单：每项是证据答不了、必须人拍板的点。
