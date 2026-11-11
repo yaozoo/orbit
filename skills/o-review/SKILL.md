@@ -138,9 +138,18 @@ Three axes, record each issue in `issues_found[]`
   each figma render (`<n>.png`) and compare the implemented UI against it:
   layout, text content, spacing, colour. o-review has no Figma token and
   never calls the API — it only consumes renders o-spec already fetched.
-  Material divergence (missing element, wrong text, broken layout vs the
-  design) is a `med`/`high` issue (`high` if a whole section is missing or
-  the page structure doesn't match). Cosmetic-only drift → `low`.
+  **Judge FORM as strictly as content** — the form is the first thing the
+  user sees:
+  - `high` — a whole section is missing or the page structure doesn't
+    match the frame.
+  - `med` — form-level divergence: dialog implemented where the design
+    shows a bottom sheet (or vice versa), wrong button hierarchy /
+    primary-secondary order, missing icon / illustration / hero art,
+    wrong interaction pattern (click vs hover vs long-press).
+    "Text is identical, only the form differs" is still a defect worth
+    fixing — do NOT downgrade it to low.
+  - `low` — cosmetic-only drift: a few pixels of spacing, a shade of
+    colour, non-load-bearing alignment.
 
 ```bash
 # run whatever test command the repo uses; if none, re-run build's assertions
@@ -149,9 +158,11 @@ Three axes, record each issue in `issues_found[]`
 ### 4. Auto-fix minor issues
 
 Fix `low` and `med` issues that are safe and local (typos, missing null
-check, a failing test fix, dead code removal). Do NOT attempt `high` or
-architectural issues — those go to `issues_remaining[]` for a `o-build`
-re-pass.
+check, a failing test fix, dead code removal, and form-level visual fixes —
+switching a centered dialog to the bottom sheet the frame shows, reordering
+buttons to match the frame's hierarchy, adding the missing icon). Do NOT
+attempt `high` or architectural issues — those go to `issues_remaining[]`
+for a `o-build` re-pass.
 
 After fixing, re-run the suite to confirm you did not break anything.
 

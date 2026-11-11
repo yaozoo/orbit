@@ -157,6 +157,25 @@ For each task, in order:
      render; quote text content verbatim from the node JSON. o-build has no
      Figma token and never calls the API — it only consumes what o-spec
      already fetched onto the branch.
+     **UI fidelity is a first-class requirement, not a nice-to-have — the
+     render is the source of truth for FORM, not just content.** Before
+     marking any UI task done, re-open the PNG and check your
+     implementation against this list (each item is a divergence class
+     that has shipped as a "low" bug before):
+     - **Form**: dialog vs bottom-sheet vs popover vs inline — match the
+       frame exactly. A centered dialog where the design shows a bottom
+       sheet is a failed task even when every string is identical.
+     - **Hierarchy**: which button is primary (filled) vs secondary, and
+       their order and placement — copy the frame, don't "improve" it.
+     - **Presence**: icons, illustrations, hero images, empty-state art —
+       if the frame shows it, it ships. "Missing illustration" is a
+       defect, not a simplification.
+     - **Text**: quote strings verbatim from the node JSON — Spanish copy,
+       punctuation, and casing included.
+     - **Values**: colours, radii, and spacing from the node JSON's fills
+       and layout — never from memory or a "close enough" palette.
+     Never rationalize a mismatch as "仅形态差异" — the form is the first
+     thing the user sees.
 2. **Implement** the smallest change that makes the verification pass (green).
 3. **Run the task's verification** (and the broader suite if one exists).
 

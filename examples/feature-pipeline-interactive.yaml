@@ -136,11 +136,13 @@ edges:
   #     condition:
   #       expr: 'ctx.clarify.exit_code == 0'
   #
-  # 想接 needs-rework 反馈环 (review→build), o-build 会读 spec_dir/REVIEW.md
-  # 的 issues_remaining 重新处理, 加一条:
-  #   - from: review
-  #     to: build
-  #     condition:
-  #       expr: 'ctx.review.verdict == "needs-rework"'
+  # needs-rework 反馈环：review 判 needs-rework 时回到 build，
+  # o-build 会读 spec_dir/REVIEW.md 的 issues_remaining 逐条重新处理。
+  # loop_limit 封顶迭代轮数；耗尽后按 settle 放行（用最后一次产出）。
+  - from: review
+    to: build
+    condition:
+      expr: 'ctx.review.verdict == "needs-rework"'
+    loop_limit: 2
 
 success: review
