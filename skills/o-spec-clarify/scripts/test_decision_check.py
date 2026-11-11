@@ -81,7 +81,7 @@ def main():
         ds = [item(key='d1'), item(key='d2'), item(key='d3')]
         p, out, _ = run_script({
             'spec_dir': str(spec), 'decisions': ds,
-            'approval_feedback': 'D1=B, D2=自定:走 D 方案，先兼容旧接口, 再切新接口。D3=待查'})
+            'approval_feedback': 'D1=B, D2=自定:走 D 方案，先兼容旧接口, 再切新接口。D3=暂缓'})
         check('exit 0', p.returncode == 0, p.stderr)
         by = {it['id']: it for it in out['items']}
         check('D1 选 B', by['D1']['chosen_key'] == 'B', str(by['D1']['chosen_key']))
@@ -209,6 +209,60 @@ def main():
         check('sheet_markdown 含问题原文', '订单状态展示哪些取值' in out.get('sheet_markdown', ''))
         check('sheet_markdown 含选项 key', '| A |' in out.get('sheet_markdown', ''))
         check('sheet_markdown 含推荐标记', '⭐' in out.get('sheet_markdown', ''))
+
+    print('case 12: 「待查」不是 defer 关键字（它常被用作选项 label）')
+    with tempfile.TemporaryDirectory() as td:
+        spec = Path(td) / 'spec'
+        spec.mkdir()
+        # 选项里有一项 label 叫「待查：先导出数据再定」——人答 D1=待查 是"选那个选项"
+        opts = [
+            {'key': 'A', 'label': '按推荐口径实现', 'impact': '可直接开工'},
+            {'key': 'B', 'label': '待查：先导出目标环境数据再定', 'impact': '决策延期'},
+        ]
+        d = item(key='d1', opts=opts, rec='A')
+        p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [d],
+                                'approval_feedback': 'D1=待查'})
+        by = {it['id']: it for it in out['items']}
+        check('D1=待查 不被解析成 defer', by['D1']['chosen_key'] != 'defer',
+              str(by['D1']['chosen_key']))
+        check('D1=待查 保留推荐并记 note',
+              by['D1']['chosen_key'] == 'A' and bool(by['D1']['note']),
+              str(by['D1']))
+        check('deferred_count == 0', out['deferred_count'] == 0, str(out['deferred_count']))
+        # 显式用「暂缓」才是 defer
+        p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [d],
+                                'approval_feedback': 'D1=暂缓'})
+        by = {it['id']: it for it in out['items']}
+        check('D1=暂缓 才是 defer', by['D1']['chosen_key'] == 'defer',
+              str(by['D1']['chosen_key']))
+
+    print('case 13: decisions_dir 与 spec_dir 分离 —— 状态不落仓')
+    with tempfile.TemporaryDirectory() as td:
+        spec = Path(td) / 'openspec' / '20260101-000000-x'
+        spec.mkdir(parents=True)
+        node = Path(td) / 'node'
+        node.mkdir()
+        ddir = node / 'decisions'
+        p, out, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
+                                'decisions': [item(key='d1')]})
+        check('exit 0', p.returncode == 0, p.stderr)
+        check('状态文件在 decisions_dir', (ddir / 'decisions.json').is_file())
+        check('清单在 decisions_dir', (ddir / 'decisions.md').is_file())
+        check('仓内 spec_dir 无 decisions.json', not (spec / 'decisions.json').exists())
+        check('仓内 spec_dir 无 decisions.md', not (spec / 'decisions.md').exists())
+        check('report.decisions_dir 指向节点目录',
+              out.get('decisions_dir') == str(ddir.resolve()),
+              str(out.get('decisions_dir')))
+        check('report.spec_dir 指向仓内', out.get('spec_dir') == str(spec.resolve()),
+              str(out.get('spec_dir')))
+        # 第二轮：状态在节点目录，轮次闸仍然生效
+        p, out2, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
+                                 'decisions': [item(key='d1')],
+                                 'approval_feedback': 'D1=B'})
+        check('第二轮 round == 2', out2.get('round') == 2, str(out2.get('round')))
+        p, out3, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
+                                 'decisions': [item(key='d1')]})
+        check('第三轮被拒', p.returncode == 1, p.stdout + p.stderr)
 
     print()
     if FAILURES:

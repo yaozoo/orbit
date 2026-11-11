@@ -8,22 +8,25 @@
 
 用法：decision_check.py --context <ctx.json>
   ctx = {
-    "spec_dir": "/abs/path/openspec/20260101-000000-slug",  # decisions.md 与状态落在这里
+    "spec_dir": "/abs/path/openspec/20260101-000000-slug",  # 仓内三件套目录（只用于定位）
+    "decisions_dir": "/abs/path/节点工作目录/decisions",     # 清单与轮次状态落这里（不落仓）
     "decisions": [ {id?, key, question, options, recommendation_key,
                     recommendation_reason, evidence, impact?} ],   # LLM 挑刺产出，可空
-    "approval_feedback": "D1=A, D2=自定:xxx, D3=待查",            # 可空（上下文 _approval_feedback）
+    "approval_feedback": "D1=A, D2=自定:xxx, D3=暂缓",          # 可空（上下文 _approval_feedback）
     "max_decisions": 12,                                         # 可选，本轮决策项上限（1..20）
     "max_rounds": 2                                              # 可选，澄清轮次硬上限（1..5，默认 2）
   }
-  → 落 <spec_dir>/{decisions.json, decisions.md}，
-    并在 ctx 同目录写 decision_output.json（decision_sheet_path / items /
-    pending_count / answered_count / deferred_count / round / round_exhausted /
-    feedback_unparsed），LLM 原样取用。
+  → 落 <decisions_dir>/{decisions.json, decisions.md}，
+    并在 ctx 同目录写 decision_output.json（decision_sheet_path / decisions_dir /
+    items / pending_count / answered_count / deferred_count / round /
+    round_exhausted / sheet_markdown / feedback_unparsed），LLM 原样取用。
 
 答复语法（人在 amend feedback 里写）：
   D1=A            选 A 选项
   D2=自定:文字     自定义答案（文字可含逗号/分号/换行，不截断）
-  D3=待查          显式推迟（deferred：不阻塞、不触发下一轮）
+  D3=暂缓          显式推迟（deferred：不阻塞、不触发下一轮）
+                  （刻意不叫「待查」——「待查」常被用作一个选项 label，
+                    与"这项我不答"语义冲突）
   未提到的项        自动取 recommended option（decided_by=recommended）
 
 轮次闸：平台不限制"人反复 amend"的次数（审批循环不消耗 max_attempts，且没有上限），
@@ -39,16 +42,16 @@ import re
 import sys
 from pathlib import Path
 
-DEFER_TEXT = '待查：未定论，下游按推荐实现并保留风险登记'
+DEFER_TEXT = '暂缓：未定论，下游按推荐实现并保留风险登记'
+# defer 的答复关键字。刻意不用「待查」——真实使用中「待查」常被用作一个**选项**
+# （人答 "D1=待查" 时意思是"我选那个待查选项"），与"这项我不答"语义冲突。
+# 这里用「暂缓」，与选项 label 无歧义。
+DEFER_KEYWORD = '暂缓'
 MAX_DECISIONS = 12
 MAX_ROUNDS = 2
 OUT_KEYS = ('id', 'key', 'question', 'options', 'recommendation_key',
             'recommendation_reason', 'evidence', 'impact', 'chosen_key',
             'custom_text', 'decided_by', 'note')
-# 进 output 的字段（人只在审批面板里看到这些，必须自足）
-REPORT_KEYS = ('decision_sheet_path', 'spec_dir', 'items', 'pending_count',
-               'answered_count', 'deferred_count', 'round', 'max_rounds',
-               'round_exhausted', 'sheet_markdown', 'feedback_unparsed')
 ANS = re.compile(r'(?<![A-Za-z0-9])D(\d+)\s*[=＝]', re.I)
 SEPS = ' \t\r\n,;，；'
 
@@ -145,7 +148,7 @@ def apply_answers(items, answers):
         m = re.match(r'^自定\s*[:：]\s*(.+)$', val, re.S)
         if m and m.group(1).strip():
             it['chosen_key'], it['custom_text'], it['decided_by'] = 'custom', m.group(1).strip(), 'human'
-        elif val == '待查':
+        elif val == DEFER_KEYWORD:
             it['chosen_key'], it['decided_by'] = 'defer', 'human'
         else:
             keymap = {o['key'].lower(): o['key'] for o in it['options']}
@@ -171,7 +174,7 @@ def binding(it):
     if ck == 'custom':
         return '自定义', it.get('custom_text') or ''
     if ck == 'defer':
-        return '待查', DEFER_TEXT
+        return '暂缓', DEFER_TEXT
     for o in it['options']:
         if o['key'] == ck:
             return o['label'], '{}（{}）'.format(o['label'], o['impact'])
@@ -184,8 +187,8 @@ def cell(s):
 
 def render_md(items, stray, round_no):
     out = ['# 待你决策清单（第 {} 轮）'.format(round_no), '',
-           '怎样回复：点 **amend**，feedback 写 `D1=A, D2=自定:..., D3=待查`。',
-           '没提到的项**自动按推荐**执行；`待查` 表示推迟（不阻塞下游，留待后续）。',
+           '怎样回复：点 **amend**，feedback 写 `D1=A, D2=自定:..., D3=暂缓`。',
+           '没提到的项**自动按推荐**执行；`暂缓` 表示这项先不定（不阻塞下游，留待后续）。',
            '选项里的 ⭐ 是本轮推荐。证据标 ⚠️未核实 的，表示推断而非亲自读到的原文。', '']
     if stray:
         out += ['**未能解析的答复片段（未生效）**：'] + ['- ' + s for s in stray] + ['']
@@ -225,7 +228,14 @@ def run(ctx):
     spec_dir = ctx.get('spec_dir')
     if not isinstance(spec_dir, str) or not spec_dir:
         raise ValueError('context 缺 spec_dir')
-    ddir = Path(spec_dir).resolve()
+    # 决策清单与轮次计数是**本次 run 的状态**，不是仓库内容——落在节点自己的工作目录，
+    # 不落在 spec_dir（仓内）。spec_dir 只用于回填三件套时的定位。
+    decisions_dir = ctx.get('decisions_dir')
+    if decisions_dir is None:
+        decisions_dir = spec_dir          # 兼容旧调用；新调用必须显式给节点目录
+    if not isinstance(decisions_dir, str) or not decisions_dir:
+        raise ValueError('context 缺 decisions_dir')
+    ddir = Path(decisions_dir).resolve()
     state_path = ddir / 'decisions.json'
     items = load_state(state_path)
     by_key = {it.get('key'): it for it in items}
@@ -293,7 +303,9 @@ def run(ctx):
                                         ensure_ascii=False, indent=2))
     sheet = ddir / 'decisions.md'
     atomic_write(sheet, render_md(items, stray, round_no))
-    report = {'decision_sheet_path': str(sheet), 'spec_dir': str(ddir),
+    report = {'decision_sheet_path': str(sheet),
+              'spec_dir': str(Path(spec_dir).resolve()),
+              'decisions_dir': str(ddir),
               'items': [{k: it.get(k) for k in OUT_KEYS} for it in items],
               'pending_count': pending, 'answered_count': answered,
               'deferred_count': deferred, 'round': round_no,

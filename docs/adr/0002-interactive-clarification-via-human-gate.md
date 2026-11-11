@@ -44,6 +44,44 @@ inside the plugin.
 `o-spec`, `o-build`, and `o-review` keep their existing autonomous contracts.
 Only the spec phase gains an interaction point.
 
+## Platform facts this design depends on
+
+These were verified against the live platform (mozi 0.1.0) by reading a real
+run's event stream and its Claude Code session log, not inferred from the
+guide.
+
+**The node's inputs arrive in `context.json`, in the node's working
+directory.** The platform's first instruction to the agent says so, names the
+plugin's materialised directory, and states that the input fields correspond
+one-to-one with that JSON's keys. `_approval_feedback` — the amend text — is a
+top-level key in that file, absent when the human has not amended. The
+clarification plugin reads it with `context.json`'s `.get()` and writes its
+own context to a different filename.
+
+**The node's working directory is stable across re-runs.** It is
+`<session_root>/<run_id>/<node_id>/`, so an amended node re-runs in the same
+place. Two consequences: the clone must be idempotent (a second `git clone`
+into the same path fails), and the decision sheet plus the round counter can
+live there and survive a round.
+
+**Approval retries are unbounded and do not consume `max_attempts`.** The
+manual is explicit that a human may amend repeatedly with no ceiling, and
+that approval rounds are counted separately from failure retries.
+`max_approval_timeouts` bounds only the case where the human goes silent. The
+two-round budget is therefore enforced by the plugin's script, not by the
+platform.
+
+**A human sees only the node's output in the approval panel.** They cannot
+open files from there. The decision sheet is therefore carried in the output
+itself as `sheet_markdown`; the path is a convenience for auditing, not the
+channel.
+
+**Deferral and an option can share a word.** In practice "待查" ("look it up
+first") is frequently used as an *option label* — the human picking that
+option means "choose the look-it-up path", not "I decline to answer". Using
+"待查" as the reply keyword for deferral would silently misparse that. The
+reply keyword is "暂缓" instead, which no option label is likely to use.
+
 ## Why not the alternatives
 
 **Keep `o-spec` autonomous, add a human gate to the same node.** Fewer

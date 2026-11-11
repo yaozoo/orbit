@@ -43,7 +43,7 @@ output:
   decision_sheet_path:
     type: str
     required: true
-    description: "Path to decisions.md in the spec dir — the human-readable decision sheet."
+    description: "Path to decisions.md in the node's decisions_dir — the human-readable decision sheet. It lives in the run's working directory, NOT in the repo."
   sheet_markdown:
     type: str
     required: true
@@ -90,6 +90,11 @@ domain: spec
 > withheld, and a human approves, rejects, or amends. Amend injects the
 > human's feedback into this node's context (`_approval_feedback`) and
 > re-runs it. This node never asks anything on its own.
+>
+> **Where your inputs live:** the platform wrote them to `context.json` in the
+> current working directory — its first instruction says so and names the
+> plugin directory. Read that file first; `_approval_feedback` is a top-level
+> key in it. Never write to it; use your own filename.
 
 ## What this node is for
 
@@ -113,9 +118,19 @@ answers is the fastest way to make them stop answering.
 
 ### 1. Clone + checkout
 
+**This node re-runs** — the human may amend it, and the platform re-runs the
+node in the *same* working directory. So the clone must be idempotent: if the
+directory already exists, reuse it instead of cloning again (`git clone` into
+an existing directory fails).
+
 ```bash
-git clone <gitlab_url> /tmp/o-spec-clarify/repo
-cd /tmp/o-spec-clarify/repo
+repo_dir="$PWD/repo"
+if [ -d "$repo_dir/.git" ]; then
+  cd "$repo_dir"
+else
+  git clone <gitlab_url> "$repo_dir"
+  cd "$repo_dir"
+fi
 git checkout <branch>
 git pull --ff-only origin <branch>
 ```
@@ -217,36 +232,69 @@ the answer the phase believes is right, with the reason it believes it.
 
 ### 5. Run the script
 
-Write `context.json` in the node's working directory:
+**First, read the platform's input file.** The platform wrote your node's
+inputs to `context.json` in the current working directory, and its first
+instruction tells you so. That file also carries `_approval_feedback` — the
+human's amend text — as a **top-level key** (absent when the human has not
+amended). Read it without overwriting it:
+
+```bash
+python3 -c "
+import json
+c = json.load(open('context.json'))
+print(c.get('_approval_feedback'))
+"
+```
+
+**Never write to `context.json`.** It is the platform's file. Write your own
+context to a **different** name — `decision_context.json`:
 
 ```json
 {
-  "spec_dir": "<absolute path to the spec dir>",
+  "spec_dir": "<absolute path to the spec dir inside the clone>",
+  "decisions_dir": "<absolute path to this node's own decisions dir — see below>",
   "decisions": [ ...the items from Step 4... ],
-  "approval_feedback": "<context._approval_feedback verbatim, omit if absent>",
+  "approval_feedback": "<the _approval_feedback value read above, verbatim; omit the key if absent>",
   "max_decisions": 12,
   "max_rounds": 2
 }
 ```
 
+**`decisions_dir` is this node's own working directory, not the repo.** The
+decision sheet and the round counter are per-run state, not repository
+content — they must not be committed into the business repo. Put them
+alongside the clone:
+
+```bash
+decisions_dir="$PWD/decisions"
+mkdir -p "$decisions_dir"
+```
+
+(`$PWD` is the node's working directory — the platform's first instruction
+tells you where it is, and it names the plugin directory as a sibling path.)
+
 `max_decisions` comes from this node's `max_decisions` input when present, else
 12. `max_rounds` is 2 — the budget the mission allows.
 
-Then:
+Then run the script with the **plugin directory the platform gave you**. The
+platform's first instruction names it (it is the directory holding this
+SKILL.md and the bundled assets, e.g.
+`/home/mozi/mozi/data/plugins/run_<run_id>/o-spec-clarify/`):
 
 ```bash
-python3 <plugin_dir>/scripts/decision_check.py --context context.json
+python3 <plugin_dir>/scripts/decision_check.py --context decision_context.json
 ```
 
-The plugin directory is injected into the context; if you cannot find it,
-look in `data/plugins/<run_id>/o-spec-clarify/`.
+If `<plugin_dir>` is not in the instruction, find it under
+`data/plugins/<run_id>/o-spec-clarify/`. Do not guess a path — run the
+script from the directory that actually contains `scripts/decision_check.py`.
 
-- Exit 0 → the script wrote `decision_output.json` next to `context.json`.
-  **Take every field from it verbatim** — `decision_sheet_path`,
-  `sheet_markdown`, `items`, `pending_count`, `answered_count`,
-  `deferred_count`, `round`, `round_exhausted`. Do not recount, re-rank, or
-  re-word. The script owns numbering, answer parsing, and the
-  recommended-option fallback.
+- Exit 0 → the script wrote `decision_output.json` next to
+  `decision_context.json`. **Take every field from it verbatim** —
+  `decision_sheet_path`, `sheet_markdown`, `items`, `pending_count`,
+  `answered_count`, `deferred_count`, `round`, `round_exhausted`. Do not
+  recount, re-rank, or re-word. The script owns numbering, answer parsing,
+  and the recommended-option fallback.
 - Exit 1 → either the shape of `decisions` is invalid, or the round budget is
   exhausted. The script printed the reason to stderr and wrote nothing.
   - Shape invalid → fix `decisions` and re-run.
@@ -260,8 +308,8 @@ look in `data/plugins/<run_id>/o-spec-clarify/`.
   `block_reason: decision_script_failed`). Do not hand-compute the counts.
 
 `approval_feedback` is the human's amend text. The script parses
-`D1=A, D2=自定:..., D3=待查` and applies it. An item the human did not mention
-takes its recommended option. An item answered `待查` is deferred — recorded
+`D1=A, D2=自定:..., D3=暂缓` and applies it. An item the human did not mention
+takes its recommended option. An item answered `暂缓` is deferred — recorded
 as open, never blocking, never re-triggering a round.
 
 **`sheet_markdown` must be emitted verbatim.** The human sees the node output
@@ -274,9 +322,6 @@ questions that are not the ones you recorded.
 After the script runs, update the trio in place so the answers are part of
 the spec `o-build` will read:
 
-- **`decisions.md`** — written by the script. Leave it exactly as written.
-  It is the record of what was asked, what was recommended, and what the
-  human chose.
 - **`proposal.md`** — where a decision settles the *what*, adjust the
   proposal lines that the decision covered. Write the chosen behaviour as a
   settled requirement, not as a question.
@@ -287,9 +332,14 @@ the spec `o-build` will read:
 
 Every decision's outcome must be visible in the trio itself. A decision
 answered in the approval panel but not reflected in the spec files is
-unresolved — `o-build` reads the trio, not `decisions.md`.
+unresolved — `o-build` reads the trio, not the decision sheet.
 
-Decisions marked `defer` (待查): leave the affected spec text on its
+The decision sheet (`decisions.md`) and the round counter (`decisions.json`)
+live in the node's `decisions_dir`, **not in the repo**. Do not copy them into
+`openspec/` and do not commit them — they are this run's bookkeeping, and the
+business repo should carry only the spec.
+
+Decisions marked `defer` (暂缓): leave the affected spec text on its
 recommended option, and do **not** rewrite it to a question. The risk stays
 visible through `confidence` and `assumptions[]` in `o-spec`'s output.
 
