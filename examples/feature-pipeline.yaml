@@ -51,7 +51,7 @@ nodes:
       branch: $mission.branch
       doc_url: $mission.doc_url
       figma_token: $mission.figma_token?
-    model: glm-5.3
+    model: deepseek-v4.1-flash-1017
 
   - id: build
     plugin: o-build
@@ -61,7 +61,7 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
-    model: glm-5.3
+    model: deepseek-v4.1-flash-1017
 
   - id: review
     plugin: o-review
@@ -71,7 +71,7 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
-    model: glm-5.3
+    model: deepseek-v4.1-flash-1017
 
 edges:
   - from: spec

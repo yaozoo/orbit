@@ -72,7 +72,8 @@ nodes:
       branch: $mission.branch
       doc_url: $mission.doc_url
       figma_token: $mission.figma_token?
-    model: glm-5.3
+    # 需读 Figma 渲染图（多模态），必须配支持视觉的模型；纯文本模型会 400
+    model: deepseek-v4.1-flash-1017
 
   # 人工澄清闸：节点跑完 → output 被扣留 → 等人 approve/reject/amend。
   # amend 的 feedback 会被注入本节点上下文并重跑本节点（最多两轮，脚本兜底）。
@@ -101,7 +102,8 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
-    model: glm-5.3
+    # 需读 Figma 渲染图（多模态），必须配支持视觉的模型；纯文本模型会 400
+    model: deepseek-v4.1-flash-1017
 
   - id: review
     plugin: o-review
@@ -111,7 +113,8 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
-    model: glm-5.3
+    # 需读 Figma 渲染图（多模态），必须配支持视觉的模型；纯文本模型会 400
+    model: deepseek-v4.1-flash-1017
 
 edges:
   - from: spec
