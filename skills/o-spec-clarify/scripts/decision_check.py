@@ -60,7 +60,7 @@ IMPACT_ORDER = {'high': 0, 'medium': 1, 'low': 2}
 OUT_KEYS = ('id', 'key', 'question', 'options', 'recommendation_key',
             'recommendation_reason', 'evidence', 'impact', 'chosen_key',
             'custom_text', 'decided_by', 'note')
-ANS = re.compile(r'(?<![A-Za-z0-9])D(\d+)\s*[=＝]', re.I)
+ANS = re.compile(r'(?<![A-Za-z0-9])D0*(\d+)\s*[=＝]', re.I)
 SEPS = ' \t\r\n,;，；'
 
 
@@ -153,15 +153,17 @@ def apply_answers(items, answers):
         if it is None:
             stray.append('{}={}：无此编号'.format(iid, val))
             continue
-        m = re.match(r'^自定\s*[:：]\s*(.+)$', val, re.S)
+        m = re.match(r'^(?:自定|自定义)\s*[:：]\s*(.+)$', val, re.S)
         if m and m.group(1).strip():
             it['chosen_key'], it['custom_text'], it['decided_by'] = 'custom', m.group(1).strip(), 'human'
-        elif val == DEFER_KEYWORD:
-            it['chosen_key'], it['decided_by'] = 'defer', 'human'
         else:
+            # 选项 key **优先**于 defer 关键字：人答 "D1=X" 是在选选项 X，
+            # 即使那个选项恰好叫「暂缓」。defer 关键字只在没有同名选项时生效。
             keymap = {o['key'].lower(): o['key'] for o in it['options']}
             if val.lower() in keymap:
                 it['chosen_key'], it['decided_by'] = keymap[val.lower()], 'human'
+            elif val == DEFER_KEYWORD:
+                it['chosen_key'], it['decided_by'] = 'defer', 'human'
             else:
                 it['note'] = '无法解析的答复片段：{}（保持原选择）'.format(val)
     return stray
@@ -249,13 +251,13 @@ def run(ctx):
     spec_dir = ctx.get('spec_dir')
     if not isinstance(spec_dir, str) or not spec_dir:
         raise ValueError('context 缺 spec_dir')
-    # 决策清单与轮次计数是**本次 run 的状态**，不是仓库内容——落在节点自己的工作目录，
-    # 不落在 spec_dir（仓内）。spec_dir 只用于回填三件套时的定位。
+    # 决策清单与轮次计数是**本次 run 的状态**，不是仓库内容——必须落在节点自己的
+    # 工作目录，绝不能落进 spec_dir（仓内）。刻意**不提供**回退：回退会让状态
+    # 悄悄进业务仓，而仓里的东西会被 commit、会被下游当规格读。
     decisions_dir = ctx.get('decisions_dir')
-    if decisions_dir is None:
-        decisions_dir = spec_dir          # 兼容旧调用；新调用必须显式给节点目录
     if not isinstance(decisions_dir, str) or not decisions_dir:
-        raise ValueError('context 缺 decisions_dir')
+        raise ValueError('context 缺 decisions_dir（决策状态必须落在节点工作目录，'
+                         '不能落在 spec_dir——那是仓内，会被提交进业务仓）')
     ddir = Path(decisions_dir).resolve()
     state_path = ddir / 'decisions.json'
     items = load_state(state_path)

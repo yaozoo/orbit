@@ -74,8 +74,10 @@ _Avoid_: certainty, score.
 **decision item**:
 One question the clarification phase could not settle from evidence and must
 ask a human. Carries options, a recommended option, and the evidence gap that
-made it unanswerable. Written to `decisions.md`; rendered into the approval
-panel so the human can answer without opening files.
+made it unanswerable. Recorded in the gate node's `decisions.md` (a run-local
+artifact, never committed to the business repo) and rendered into the node
+output so the human can answer from the approval panel without opening
+files.
 _Avoid_: question, todo, issue, blocker (a blocker is a hard `exit_code: 2`).
 
 **option**:
@@ -93,7 +95,7 @@ _Avoid_: default, fallback, guess.
 **deferred decision**:
 A decision item the human explicitly postpones. It never blocks downstream
 work and never re-triggers a clarification round; it is recorded as open in
-`decisions.md`.
+the gate node's `decisions.md`.
 _Avoid_: skipped, postponed, todo.
 
 **clarification round**:

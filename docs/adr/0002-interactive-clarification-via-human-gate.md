@@ -107,6 +107,32 @@ exactly the ones where the agent lacks evidence — asking them as one batch at
 the end is what this decision does, so this alternative is a subset, not a
 replacement.
 
+## Scope
+
+This decision covers **one** thing: turning the ambiguities that `o-spec`
+silently resolved into a bounded list a human can answer, and folding the
+answers back before `o-build` starts.
+
+It deliberately does **not** cover three things that were part of the
+original idea, and none of them are implemented anywhere in this repository:
+
+- **A configurable analysis method.** The user may want to pick the skill or
+  method that drives requirement analysis (OpenSpec, a skill from GitHub, a
+  pasted URL). mozi has no skill-registration API — auxiliary skills are
+  resolved by name from the execution machine's `~/.claude` and are not
+  validated at compile time — so a runtime-picked method would have to be
+  fetched and snapshotted as text by a plugin. That is a separate decision
+  with its own security and reproducibility questions.
+- **Multi-round ideation.** The gate asks and answers; it does not make the
+  agent brainstorm against itself. Self-iteration without a human was
+  considered and rejected above, but replacing it with genuine ideation
+  (multiple perspectives producing and challenging proposals) is not part of
+  this design.
+- **A user-facing page.** The inputs still arrive as files on a GitLab
+  branch, resolved through `doc_url`. No upload UI exists.
+
+Claiming otherwise would misrepresent what the pipeline does.
+
 ## Consequences
 
 - The spec phase gains a node that can be blocked waiting for a human. The
