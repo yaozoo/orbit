@@ -23,10 +23,6 @@ input:
     type: str
     required: false
     description: "Spec dir name under openspec/ (e.g. 20260101-120000-foo). Omitted on the first round — the newest timestamped dir is used."
-  max_decisions:
-    type: int
-    required: false
-    description: "Upper bound on decision items this round. Default 12. Exceeding it is a script error, not a silent truncation."
 output:
   exit_code:
     type: int
@@ -52,6 +48,10 @@ output:
     type: int
     required: true
     description: "Total decision items known (across rounds; a key answered in round 1 is not re-counted)."
+  top_n:
+    type: int
+    required: true
+    description: "Items with impact=high — the ones the sheet tells the human to handle first. All items are listed and answerable regardless."
   answered_count:
     type: int
     required: true
@@ -124,7 +124,8 @@ directory already exists, reuse it instead of cloning again (`git clone` into
 an existing directory fails).
 
 ```bash
-repo_dir="$PWD/repo"
+node_dir="$PWD"              # 节点工作目录，先固定住（后面会 cd 进 repo）
+repo_dir="$node_dir/repo"
 if [ -d "$repo_dir/.git" ]; then
   cd "$repo_dir"
 else
@@ -134,6 +135,10 @@ fi
 git checkout <branch>
 git pull --ff-only origin <branch>
 ```
+
+- Never clone into a fixed `/tmp` path: the node's working directory is per
+  run+node, but `/tmp` is shared across the platform's concurrent runs
+  (`max_active_runs`, default 8) — two runs would collide there.
 
 - Branch missing on remote → `exit_code: 2`,
   `block_reason: branch_not_on_remote`, stop.
@@ -216,14 +221,19 @@ Rules the script enforces (violations exit 1 and write nothing):
 - `question` non-empty
 - `options` at least 2; each option has non-empty `key`, `label`, `impact`;
   option keys unique
-- `recommendation_key` must be one of the option keys (omit it only when the
-  question genuinely has no defensible default)
+- `recommendation_key` is **required** and must be one of the option keys —
+  every item needs the answer the phase believes is right, because an
+  unanswered item silently takes it
 - `evidence` non-empty; each entry is `{claim, verified, ref}`; `verified: true`
   requires a `ref` you actually read
+- `impact` must be exactly `high`, `medium`, or `low`
 
-`impact` is `high` / `medium` / `low`. It drives nothing mechanically — it
-tells the human where to spend attention. Sort your items by impact
-descending so the important ones are at the top of the sheet.
+`impact` drives the sheet's display order — the script renders items
+impact-descending and calls out how many high-impact items there are, so the
+human knows where to spend attention first. **Numbers are stable across
+rounds**: `D<n>` is bound to one question for the whole run (the sort only
+affects display), which is what makes the human's `D1=A` unambiguous in a
+later round.
 
 **Mark the recommended option explicitly.** The human should be able to accept
 the whole sheet by doing nothing. That is why every item needs a
@@ -255,7 +265,6 @@ context to a **different** name — `decision_context.json`:
   "decisions_dir": "<absolute path to this node's own decisions dir — see below>",
   "decisions": [ ...the items from Step 4... ],
   "approval_feedback": "<the _approval_feedback value read above, verbatim; omit the key if absent>",
-  "max_decisions": 12,
   "max_rounds": 2
 }
 ```
@@ -266,15 +275,16 @@ content — they must not be committed into the business repo. Put them
 alongside the clone:
 
 ```bash
-decisions_dir="$PWD/decisions"
+decisions_dir="$node_dir/decisions"
 mkdir -p "$decisions_dir"
 ```
 
-(`$PWD` is the node's working directory — the platform's first instruction
-tells you where it is, and it names the plugin directory as a sibling path.)
+(`$node_dir` was captured in Step 1 before any `cd` — after `cd repo`,
+`$PWD` points inside the clone, so use the captured variable. The node's
+working directory is what the platform's first instruction tells you; it
+names the plugin directory as a sibling path.)
 
-`max_decisions` comes from this node's `max_decisions` input when present, else
-12. `max_rounds` is 2 — the budget the mission allows.
+`max_rounds` is 2 — the budget the mission allows.
 
 Then run the script with the **plugin directory the platform gave you**. The
 platform's first instruction names it (it is the directory holding this
@@ -291,19 +301,21 @@ script from the directory that actually contains `scripts/decision_check.py`.
 
 - Exit 0 → the script wrote `decision_output.json` next to
   `decision_context.json`. **Take every field from it verbatim** —
-  `decision_sheet_path`, `sheet_markdown`, `items`, `pending_count`,
-  `answered_count`, `deferred_count`, `round`, `round_exhausted`. Do not
-  recount, re-rank, or re-word. The script owns numbering, answer parsing,
-  and the recommended-option fallback.
+  `decision_sheet_path`, `sheet_markdown`, `items`, `decisions_count`, `top_n`,
+  `pending_count`, `answered_count`, `deferred_count`, `round`,
+  `round_exhausted`. Do not recount, re-rank, or re-word. The script owns
+  numbering, answer parsing, and the recommended-option fallback.
 - Exit 1 → either the shape of `decisions` is invalid, or the round budget is
   exhausted. The script printed the reason to stderr and wrote nothing.
   - Shape invalid → fix `decisions` and re-run.
   - Round exhausted (`澄清轮次已耗尽`) → **this node is done**. Do not try
     to work around it. Emit `exit_code: 1`,
-    `block_reason: clarification_rounds_exhausted`, and stop — the run fails
-    and a human decides whether to cancel, re-run with a fresh spec dir, or
-    accept the current state. Opening new questions here would defeat the
-    whole point of the round budget.
+    `block_reason: clarification_rounds_exhausted`, and stop. The run does
+    NOT fail — `exit_code` is an output field, not a node-failure signal —
+    but the approval gate still withholds this node's output, so the human
+    decides: approve (accept the current spec and release `o-build`),
+    cancel the run, or start a fresh run. Opening new questions here would
+    defeat the whole point of the round budget.
 - Exit 2 → the script itself failed. This node fails (`exit_code: 1`,
   `block_reason: decision_script_failed`). Do not hand-compute the counts.
 
@@ -362,8 +374,11 @@ git push origin <branch>
 
 ## Rounds
 
-The mission allows at most **two** clarification rounds. Round 1 is this
-node's first execution; round 2 is its re-execution after the human amends.
+The mission allows at most **two** clarification rounds. A round advances only
+when the human sends **new feedback text** — an amend always does; a reject
+does only if the platform injects its reason as feedback (the manual is
+ambiguous on this). A re-run with unchanged or empty feedback — an idempotent
+re-run, a platform retry, a reason-less reject — does **not** consume a round.
 The script tracks which round it is (`round` in `decision_output.json`) and
 **refuses to run a third round** (`max_rounds: 2`).
 
@@ -383,9 +398,10 @@ add many new items in round 2, you are asking the human to re-answer what
 they already answered — stop.
 
 When `round_exhausted` is true, the human sees that this was the last
-chance. The next amend is refused by the script and the node fails with
-`clarification_rounds_exhausted` — the human then decides to approve,
-cancel, or start a fresh run.
+chance. The next amend is refused by the script and the node emits
+`exit_code: 1` with `clarification_rounds_exhausted` (the run itself does
+not fail — the approval gate keeps withholding the output) — the human then
+decides to approve, cancel, or start a fresh run.
 
 ## Output
 

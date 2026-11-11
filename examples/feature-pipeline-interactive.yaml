@@ -5,9 +5,10 @@
 # "证据答不了、必须人拍板"的歧义做成选择题清单，人在审批面板里答，答复回灌到
 # spec 目录后才放行 o-build。详见 docs/adr/0002-interactive-clarification-via-human-gate.md。
 #
-# ⚠️ 轮次上限由脚本兜底（max_rounds=2），不由平台兜底：平台不限制人反复 amend
+# ⚠️ 轮次上限由脚本兜底（max_rounds=2），不由平台兜底：平台不限制人反复 reject/amend
 #    的次数（审批循环不消耗 max_attempts 且无上限）。max_approval_timeouts 只管
-#    "人沉默"这一种情况。
+#    "人沉默"这一种情况。轮次按"新答复"计数：amend 每次计一轮；无反馈的重跑
+#    （平台 retry、无 reason 的 reject）不消耗预算。
 # ⚠️ 本 mission 会把 run 挂在 running 状态等人审批。平台 max_active_runs 默认 8，
 #    8 个 run 同时等人会堵死平台。
 name: feature-pipeline-interactive
@@ -86,8 +87,8 @@ nodes:
     approval_criteria: |
       待你决策清单：每项是证据答不了、必须人拍板的点。
       审阅方式：看 output 的 sheet_markdown；点 approve = 全部采纳推荐；
-      点 amend 并在 feedback 写 "D1=A, D2=自定:..., D3=待查" 只改指定项；
-      点 reject = 整份需求理解方向错了，需要重来。
+      点 amend 并在 feedback 写 "D1=A, D2=自定:..., D3=暂缓" 只改指定项（每次消耗一轮澄清，共两轮）；
+      点 reject = 重跑本节点（reason 作为新反馈时同样计一轮），慎用。
       没提到的项自动按推荐执行，不会阻塞下游。
     approval_timeout: 86400
     max_approval_timeouts: 2
@@ -122,9 +123,11 @@ edges:
   # 无条件边 + 下游自检: 每节点 clone 后若 openspec/<spec_dir>/ 缺失 → exit_code=2,
   # block_reason 指回上游没 push. 不用 condition.expr 以避开 ctx. 拼写不确定性.
   #
-  # 澄清闸失败（轮次耗尽 / 脚本故障）时不要放行 build——上面的边是无条件的，
-  # 但 clarify 节点失败会中断 run，后续节点不会 dispatch。若要"澄清失败也继续
-  # build（按推荐实现）"，把 clarify→build 换成带条件的边:
+  # 澄清轮次耗尽/脚本故障时怎么办——注意 exit_code 只是 output 数据字段，emit 1
+  # 并不会让节点失败或中断 run（平台语义：节点失败 = 重试耗尽）。真正的闸是
+  # human_approval 扣留 output：轮次耗尽后人只能 approve（按当前状态放行 build）、
+  # 再 amend（被脚本拒，节点重跑后仍卡回审批）或 cancel run。
+  # 若要"澄清未成功绝不放行 build"，把 clarify→build 换成带条件的边:
   #   - from: clarify
   #     to: build
   #     condition:

@@ -70,9 +70,21 @@ domain: spec
 
 ### 1. Clone + checkout
 
+**Clone into this node's working directory, never a fixed `/tmp` path.** The
+working directory is stable across re-runs (a retry re-runs the node from
+scratch in the same place, so `git clone` into an existing dir fails — reuse
+it), and `/tmp` is shared across the platform's concurrent runs
+(`max_active_runs`, default 8) — two runs would collide there.
+
 ```bash
-git clone <gitlab_url> /tmp/o-spec/repo
-cd /tmp/o-spec/repo
+node_dir="$PWD"              # capture before any cd
+repo_dir="$node_dir/repo"
+if [ -d "$repo_dir/.git" ]; then
+  cd "$repo_dir"
+else
+  git clone <gitlab_url> "$repo_dir"
+  cd "$repo_dir"
+fi
 git checkout <branch>
 git pull --ff-only origin <branch>
 ```
@@ -169,8 +181,8 @@ Scan the resolved docs for Figma URLs (match
   # 2) rendered PNG — images endpoint returns {"images":{"<id>":"<url>"}}
   curl -sSL -H "X-Figma-Token: <figma_token>" \
     "https://api.figma.com/v1/images/<file_key>?ids=<node_id>&format=png&scale=2" \
-    -o /tmp/o-spec/figma-<n>.json
-  img_url=$(grep -oE 'https://[^"]+' /tmp/o-spec/figma-<n>.json | head -1)
+    -o "$node_dir/figma-<n>.json"
+  img_url=$(grep -oE 'https://[^"]+' "$node_dir/figma-<n>.json" | head -1)
   curl -sSL "$img_url" -o "$spec_dir/figma/<n>.png"
   ```
   Save the node JSON to `$spec_dir/figma/<n>.json` and the PNG to

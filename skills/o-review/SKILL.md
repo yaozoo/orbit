@@ -74,9 +74,21 @@ domain: review
 
 ### 1. Clone + checkout
 
+**Clone into this node's working directory, never a fixed `/tmp` path.** The
+working directory is stable across re-runs (a retry re-runs the node from
+scratch in the same place, so `git clone` into an existing dir fails — reuse
+it), and `/tmp` is shared across the platform's concurrent runs
+(`max_active_runs`, default 8) — two runs would collide there.
+
 ```bash
-git clone <gitlab_url> /tmp/o-review/repo
-cd /tmp/o-review/repo
+node_dir="$PWD"              # capture before any cd
+repo_dir="$node_dir/repo"
+if [ -d "$repo_dir/.git" ]; then
+  cd "$repo_dir"
+else
+  git clone <gitlab_url> "$repo_dir"
+  cd "$repo_dir"
+fi
 git checkout <branch>
 git pull --ff-only origin <branch>
 ```

@@ -31,7 +31,7 @@ status, commit_hash, counts, verdict) — never file paths.
 | phase | reads | writes | commits |
 |---|---|---|---|
 | `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/<spec_dir>/{proposal,design,tasks}.md` (+ `figma/` renders) | the trio (+ renders) |
-| `o-spec-clarify` | the trio (+ the human's answers) | `openspec/<spec_dir>/decisions.md` + answers folded into the trio | decisions + amended trio |
+| `o-spec-clarify` | the trio (+ the human's answers) | answers folded into the trio (decision sheet + round state live in the gate node's run-local `decisions/` dir, never committed) | amended trio |
 | `o-build` | `openspec/<spec_dir>/` (+ figma renders; `REVIEW.md` on a re-pass) | `src/`, `tests/`, updated `tasks.md` | code + tests |
 | `o-review` | `openspec/<spec_dir>/` + code (+ figma renders) | `openspec/<spec_dir>/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
 
@@ -66,7 +66,7 @@ they do, a blank or invalid token hard-blocks (`exit_code: 2`).
 
 `o-spec-clarify` runs with `human_approval: true`, so the run pauses with the
 decision sheet in the approval panel. The human answers with **amend** and
-feedback like `D1=A, D2=自定:..., D3=待查`; items not mentioned fall back to
+feedback like `D1=A, D2=自定:..., D3=暂缓`; items not mentioned fall back to
 their recommended option, so approving without answering is a valid (if
 unreviewed) outcome. At most **two** clarification rounds — the plugin's
 script enforces the budget, because the platform does not bound how often a

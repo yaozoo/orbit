@@ -59,14 +59,33 @@ domain: build
 > Second phase. **Never ask the user anything.** State arrives via the remote
 > branch (relay, ADR-0001): clone fresh, read `openspec/`, implement, commit,
 > push. There is no `.orbit-state` file and no shared workspace.
+>
+> **Session budget:** the CC session is capped by the runtime's `max_turns`
+> (default 60) and the node's `execution_timeout` — whichever hits first
+> kills the attempt, and a retry re-runs the node **from scratch**. Keep each
+> task's verification tight (one test command, one assertion script); batch
+> small related edits instead of one tool call per file. A tasks.md with
+> dozens of fine-grained tasks will likely hit the cap and burn retries.
 
 ## Run
 
 ### 1. Clone + checkout
 
+**Clone into this node's working directory, never a fixed `/tmp` path.** The
+working directory is stable across re-runs (a retry re-runs the node from
+scratch in the same place, so `git clone` into an existing dir fails — reuse
+it), and `/tmp` is shared across the platform's concurrent runs
+(`max_active_runs`, default 8) — two runs would collide there.
+
 ```bash
-git clone <gitlab_url> /tmp/o-build/repo
-cd /tmp/o-build/repo
+node_dir="$PWD"              # capture before any cd
+repo_dir="$node_dir/repo"
+if [ -d "$repo_dir/.git" ]; then
+  cd "$repo_dir"
+else
+  git clone <gitlab_url> "$repo_dir"
+  cd "$repo_dir"
+fi
 git checkout <branch>
 git pull --ff-only origin <branch>
 ```

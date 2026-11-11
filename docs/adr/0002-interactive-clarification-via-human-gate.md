@@ -32,14 +32,18 @@ unanswerable. The clarification node runs the mechanical part of the gate
 the sheet) and its output is what the human actually sees in the approval
 panel.
 
-The human answers by amending: `D1=A, D2=自定:..., D3=待查`. Items the human
+The human answers by amending: `D1=A, D2=自定:..., D3=暂缓`. Items the human
 does not mention fall back to their recommended option. Deferred items are
 recorded as open and never re-trigger a round.
 
-The pipeline allows **at most two clarification rounds**. The bound is
-enforced by the mission's `approval_timeout` × `max_approval_timeouts`
-settings (the platform's own streak counter), not by a self-imposed check
-inside the plugin.
+The pipeline allows **at most two clarification rounds**. The platform does
+not bound how often a human may reject or amend (the approval loop is
+unbounded and does not consume `max_attempts`; `max_approval_timeouts`
+bounds only human silence), so the bound is enforced by the plugin's own
+round gate — the script refuses to run a third round. Rounds are counted by
+**new feedback text** (the script fingerprints it): an amend always advances
+the round; a re-run with unchanged or empty feedback — an idempotent re-run,
+a platform retry, a reason-less reject — does not.
 
 `o-spec`, `o-build`, and `o-review` keep their existing autonomous contracts.
 Only the spec phase gains an interaction point.
@@ -108,9 +112,11 @@ replacement.
 - The spec phase gains a node that can be blocked waiting for a human. The
   platform's `max_active_runs` (default 8) is the real limit: eight runs
   waiting for human approval block the whole platform.
-- Decision items are a new artifact (`decisions.md` in the spec dir) that
-  `o-build` and `o-review` must not treat as requirements. It is a record of
-  what was asked and what was chosen, not a source of scope.
+- Decision items are a new artifact — the decision sheet (`decisions.md`)
+  and the round state live in the gate node's run-local working directory
+  and are never committed to the business repo; only the folded answers
+  enter the trio. `o-build` and `o-review` read the trio, so the sheet
+  cannot leak into scope.
 - An unanswered item is not a blocker. It silently takes its recommended
   option, so a missing human degrades quality rather than stalling the
   pipeline. `confidence` and `assumptions[]` continue to carry the signal
