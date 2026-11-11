@@ -157,12 +157,25 @@ Three axes, record each issue in `issues_found[]`
 
 ### 4. Auto-fix minor issues
 
-Fix `low` and `med` issues that are safe and local (typos, missing null
-check, a failing test fix, dead code removal, and form-level visual fixes —
-switching a centered dialog to the bottom sheet the frame shows, reordering
-buttons to match the frame's hierarchy, adding the missing icon). Do NOT
-attempt `high` or architectural issues — those go to `issues_remaining[]`
-for a `o-build` re-pass.
+Fix `low` and `med` issues that are safe and local. For every visual
+`med`/`low` issue, work this checklist — each line is a MUST-FIX item, not
+a suggestion. Skip a line only when the fix would require an asset you
+genuinely cannot produce, and then say so in the issue itself:
+
+- [ ] **Form** matches the frame: dialog ↔ bottom sheet ↔ popover ↔
+      inline — switch the component's form to the frame's form.
+- [ ] **Button hierarchy** matches the frame: primary/secondary roles,
+      order, and placement.
+- [ ] **Presence** matches the frame: every icon, illustration, hero
+      image, and empty-state art the frame shows is present in the
+      implementation.
+- [ ] **Text** matches the node JSON verbatim.
+- [ ] **Interaction pattern** matches the frame: click vs hover vs
+      long-press.
+
+Functional fixes (typos, null checks, failing tests, dead code removal)
+are in scope too. Do NOT attempt `high` or architectural issues — those go
+to `issues_remaining[]` for a `o-build` re-pass.
 
 After fixing, re-run the suite to confirm you did not break anything.
 

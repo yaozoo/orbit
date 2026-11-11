@@ -71,7 +71,13 @@ nodes:
     inputs:
       gitlab_url: $mission.gitlab_url
       branch: $mission.branch
+    # 需读 Figma 渲染图（多模态），必须配支持视觉的模型；纯文本模型会 400
     model: deepseek-v4.1-flash-1017
+
+  # 终点判定（deterministic python 节点，零 token）：仅当 review verdict ==
+  # pass 时由条件边派发；success 挂在它上面，见 edges 段说明。
+  - id: done
+    plugin: o-done
 
 edges:
   - from: spec
@@ -87,11 +93,19 @@ edges:
   #       expr: 'ctx.build.exit_code == 0'
   # needs-rework 反馈环：review 判 needs-rework 时回到 build，
   # o-build 会读 spec_dir/REVIEW.md 的 issues_remaining 逐条重新处理。
-  # loop_limit 封顶迭代轮数；耗尽后按 settle 放行（用最后一次产出）。
+  # loop_limit 封顶迭代轮数；耗尽时 human_gate 升级人审而非静默 settle：
+  # approve=接受当前产出放行、amend=重置迭代预算再试、reject=节点失败。
   - from: review
     to: build
     condition:
       expr: 'ctx.review.verdict == "needs-rework"'
     loop_limit: 2
+    loop_limit_exhausted_action: human_gate
+  # 终点判定：仅 review verdict == pass 时派发 done（python 节点，零成本）。
+  # success: done —— run 的"目标达成"反映真实审结论。
+  - from: review
+    to: done
+    condition:
+      expr: 'ctx.review.verdict == "pass"'
 
-success: review
+success: done

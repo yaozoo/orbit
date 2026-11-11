@@ -44,6 +44,12 @@ Each phase's `exit_code`: `0` success / `1` failure (leave for review) /
 `2` blocked (route to human). Every phase pushes; a failed push is a hard
 `exit_code: 2`.
 
+A terminal marker plugin, `o-done`, is the mission's success node: the
+`review→done` edge fires only on `verdict == "pass"`, and the rework loop
+exhausts into a human gate (`loop_limit_exhausted_action: human_gate`)
+instead of settling silently — so the run's 目标达成 reflects the actual
+review outcome, not mere node arrival.
+
 ## Wire it on mozi
 
 Publish the plugins (Plugins → + publish → zip each `skills/o-*` dir), then
@@ -95,6 +101,7 @@ skills/o-spec-clarify/SKILL.md      # decision items → human gate → answers 
 skills/o-spec-clarify/scripts/decision_check.py   # numbering / answer parsing / round gate
 skills/o-build/SKILL.md             # inline verification + implementation, per-task rollback
 skills/o-review/SKILL.md            # audit + auto-fix → REVIEW.md verdict
+skills/o-done/                      # terminal pass marker (python, zero-cost) gated on verdict==pass
 examples/feature-pipeline.yaml           # the autonomous mission接入
 examples/feature-pipeline-interactive.yaml # the mission with the human gate
 docs/adr/0001-relay-state-via-remote-branch.md

@@ -151,12 +151,17 @@ For each task, in order:
      the verification is a lightweight bash assertion: file exists, contains
      the expected marker, valid JSON/HTML, structure check. This is NOT a
      block (see Step 5).
-   - Task touches UI and `$spec_dir/figma/` exists → `read_file` the PNG
-     (`<n>.png`) the task maps to (multimodal — you see the image) and its
-     `<n>.json` for exact text/colours/structure. Implement to match the
-     render; quote text content verbatim from the node JSON. o-build has no
-     Figma token and never calls the API — it only consumes what o-spec
-     already fetched onto the branch.
+   - Task touches UI and `$spec_dir/figma/` exists → **hard precondition:
+     a frame you have not opened is a frame you have not implemented.**
+     Start by `ls`-ing `$spec_dir/figma/` and `read_file`-ing every PNG the
+     phase's UI tasks touch — and when tasks reference a *screen* (login,
+     no-order, success, upload …), open **every frame of that screen**, not
+     just the first one you find. The paired `<n>.json` is read alongside
+     for verbatim text and colour values. Writing a component whose design
+     frame was never opened is the most common fidelity failure — treat it
+     as an unfinished task, not a style choice. o-build has no Figma token
+     and never calls the API — it only consumes what o-spec already fetched
+     onto the branch.
      **UI fidelity is a first-class requirement, not a nice-to-have — the
      render is the source of truth for FORM, not just content.** Before
      marking any UI task done, re-open the PNG and check your
