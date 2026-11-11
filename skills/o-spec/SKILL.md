@@ -202,34 +202,70 @@ it; they see the committed renders via the branch (relay, ADR-0001).
 The doc may cite another repo as evidence — e.g. "参考
 https://gitlab.example/saas/frontend/dealer-transformer-pc.git 项目中 main
 分支上 apps/application/src/views/personal-new-car 中上传模块文件参数使用
-规则". Every such citation is an external evidence source: a reference you did
-not open is an assumption, not evidence.
+规则", or "参见 xxx.git", or "沿用 dealer-transformer-pc 的上传逻辑". Every
+such citation is an external evidence source: a reference you did not open is
+an assumption, not evidence.
 
-1. **Shallow-clone** it into this node's working directory — never `/tmp`
-   (the same concurrency rules as the main clone), never inside the repo:
-   ```bash
-   mkdir -p "$node_dir/refs"
-   git clone --depth 1 -b <branch> <repo_url> "$node_dir/refs/<name>"
-   ```
-2. **Read** the cited path(s), plus whatever they import that the cited
-   rules depend on. Ground the requirement from what you actually read —
-   parameter names, field conventions, upload rules go into `design.md`
-   **written out**, not as a pointer to the reference repo. The trio must be
-   self-contained: `o-build` and `o-review` never see the reference clone
-   (relay, ADR-0001), so a rule that only exists there is a rule they don't
-   have.
-3. **Record provenance** where you cite it: repo URL + branch + the cloned
-   commit SHA + path (e.g. `dealer-transformer-pc@<sha>:
-   apps/.../personal-new-car/upload.vue`), so a human can audit and re-find
-   the exact code.
-4. **Failure is soft, not a block.** Clone fails (no credentials for that
-   repo, branch or repo gone) → record it in `assumptions[]`
-   ("reference unreadable: <url>"), lower `confidence`, proceed from the doc
-   and the main repo alone. A reference is supporting evidence, not a
-   precondition — an unreachable reference must not kill the run.
-5. **Never commit, never push** anything from `$node_dir/refs/` — it is
-   read-only evidence for this phase. Step 7's `git add openspec/` already
-   guarantees it cannot leak into the phase commit.
+**Recognize and classify the citation:**
+
+- **A — a full URL** (`https://.../<repo>.git` or a GitLab UI URL), with or
+  without branch/path.
+- **B — a repo name only** ("参考 dealer-transformer-pc 项目的…"), no URL.
+- Vaguer phrasing ("参考业界常见做法") is not a citation — treat it as
+  ordinary requirement text.
+
+**A → clone and read.** Shallow-clone into this node's working directory —
+never `/tmp` (the same concurrency rules as the main clone), never inside
+the repo:
+
+```bash
+mkdir -p "$node_dir/refs"
+git clone --depth 1 -b <branch> <repo_url> "$node_dir/refs/<name>"
+```
+
+- Branch given → clone that branch; branch missing → the default branch.
+- Path given → read it, plus whatever it imports that the cited rules
+  depend on. Path missing → locate the most relevant implementation by
+  searching the clone for the requirement's domain keywords; if nothing
+  convincing turns up, fall through to B's handling.
+- **Record provenance** wherever you cite it: repo URL + branch + the
+  cloned commit SHA + UTC read time (e.g.
+  `dealer-transformer-pc@<sha> (main, read 2026-11-11T04:22Z):
+  apps/.../personal-new-car/upload.vue`). The branch drifts between runs;
+  the SHA + timestamp pin what you actually read this time.
+- **Distill, don't point.** The rules go into `design.md` written out with
+  the exact parameter and field names quoted — "遵循该模块的上传规则" is a
+  pointer, not a rule. The trio must be self-contained: `o-build` and
+  `o-review` never see the reference clone (relay, ADR-0001), so a rule
+  that only exists there is a rule they don't have.
+
+**B → cannot clone, don't guess.** Never construct or guess a URL — a
+fabricated URL is worse than an unread reference. Record it in
+`assumptions[]` ("reference unreadable: <name>, doc gives no URL"), lower
+`confidence`, settle the requirement on the main repo and doc alone, and
+leave a one-line assumption note in `proposal.md` (e.g. "参照
+dealer-transformer-pc 上传规则：文档未给 URL，未读取，按本仓现状实现"). That
+visible note is what lets `o-spec-clarify` raise it as a decision item — the
+human can supply the URL as a custom answer.
+
+**Clone failure (A: no credentials, repo or branch gone) → same as B**:
+`assumptions[]` + lower `confidence`, not a block. A reference is supporting
+evidence, not a precondition — an unreachable reference must not kill the
+run.
+
+**When the target repo and the reference disagree**, split by kind:
+
+- Cross-project **contracts** — parameter names, field semantics,
+  request/response shapes, enum values — the **reference wins**: matching it
+  is why the human cited it.
+- Project-local **structure** — directory layout, component choices, naming
+  conventions, existing patterns — the **target repo wins**: the reference's
+  structure does not transplant.
+- On any conflict, record in `assumptions[]` which side won and why.
+
+**Never commit, never push** anything from `$node_dir/refs/` — it is
+read-only evidence for this phase. Step 7's `git add openspec/` already
+guarantees it cannot leak into the phase commit.
 
 ### 4. Synthesize the OpenSpec trio
 

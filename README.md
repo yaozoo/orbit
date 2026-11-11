@@ -65,10 +65,12 @@ they do, a blank or invalid token hard-blocks (`exit_code: 2`).
 Requirement docs may also cite other repos as references ("参考
 \<repo-url\> \<branch\> \<path\>"). `o-spec` shallow-clones them read-only
 into its own working directory, reads the cited code, and distills what
-matters into `design.md` (with repo@SHA + path provenance) — the trio stays
-self-contained and downstream nodes never see the reference repo. An
-unreadable reference is recorded in `assumptions` with lower `confidence`,
-not a block.
+matters into `design.md` (with repo@SHA + read-time provenance) — the trio
+stays self-contained and downstream nodes never see the reference repo.
+Cross-project contracts win over the target repo's local structure when
+the two disagree. A name-only citation or an unreachable reference is
+recorded in `assumptions` with lower `confidence` (not a block) and
+surfaced as a clarification item — never a guessed URL.
 
 ### The interactive variant
 
