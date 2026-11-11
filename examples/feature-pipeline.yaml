@@ -85,12 +85,13 @@ edges:
   - from: build
     to: review
   # 无条件边 + 下游自检: 每节点 clone 后若 openspec/<spec_dir>/ 缺失 → exit_code=2,
-  # block_reason 指回上游没 push. 不用 condition.expr 以避开 ctx. 拼写不确定性.
+  # block_reason 指回上游没 push. 条件边用 type: expr + 源节点输出字段裸名（编译期 AST 白名单校验）。
   # 想在 build 失败时跳过 review, 可把第二条边换成:
   #   - from: build
   #     to: review
   #     condition:
-  #       expr: 'ctx.build.exit_code == 0'
+  #       type: expr
+  #       expr: 'exit_code == 0'
   # needs-rework 反馈环：review 判 needs-rework 时回到 build，
   # o-build 会读 spec_dir/REVIEW.md 的 issues_remaining 逐条重新处理。
   # loop_limit 封顶迭代轮数；耗尽时 human_gate 升级人审而非静默 settle：
@@ -98,7 +99,8 @@ edges:
   - from: review
     to: build
     condition:
-      expr: 'ctx.review.verdict == "needs-rework"'
+      type: expr
+      expr: 'verdict == "needs-rework"'
     loop_limit: 2
     loop_limit_exhausted_action: human_gate
   # 终点判定：仅 review verdict == pass 时派发 done（python 节点，零成本）。
@@ -106,6 +108,7 @@ edges:
   - from: review
     to: done
     condition:
-      expr: 'ctx.review.verdict == "pass"'
+      type: expr
+      expr: 'verdict == "pass"'
 
 success: done
