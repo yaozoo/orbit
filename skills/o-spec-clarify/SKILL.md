@@ -220,7 +220,10 @@ Rules the script enforces (violations exit 1 and write nothing):
 - `key` non-empty and unique across rounds
 - `question` non-empty
 - `options` at least 2; each option has non-empty `key`, `label`, `impact`;
-  option keys unique
+  option keys unique. Keys are short identifiers (`A`, `B`, …) — never
+  `暂缓`, `自定`, or `自定义`: they collide with the reply syntax (an
+  option keyed `暂缓` makes the item impossible to defer, because option
+  keys win over the defer keyword when the human answers)
 - `recommendation_key` is **required** and must be one of the option keys —
   every item needs the answer the phase believes is right, because an
   unanswered item silently takes it
