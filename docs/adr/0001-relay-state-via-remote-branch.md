@@ -28,3 +28,7 @@ was lost at the node boundary every time.
 - Nodes re-clone per phase (3 clones per run). Accepted cost: seconds to
   minutes, and the only model that does not depend on an unconfirmed
   shared-filesystem guarantee from the platform.
+- A requirement doc may cite another repository as reference. That clone is
+  evidence-only: it lives in the citing node's working directory, is never
+  committed, and whatever the spec needs from it is distilled into the trio
+  — downstream nodes never re-clone it.

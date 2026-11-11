@@ -30,7 +30,7 @@ status, commit_hash, counts, verdict) — never file paths.
 
 | phase | reads | writes | commits |
 |---|---|---|---|
-| `o-spec` | `DocSpec/` doc(s) + optional Figma links | `openspec/<spec_dir>/{proposal,design,tasks}.md` (+ `figma/` renders) | the trio (+ renders) |
+| `o-spec` | `DocSpec/` doc(s) + optional Figma links + reference repos cited in the doc | `openspec/<spec_dir>/{proposal,design,tasks}.md` (+ `figma/` renders) | the trio (+ renders) |
 | `o-spec-clarify` | the trio (+ the human's answers) | answers folded into the trio (decision sheet + round state live in the gate node's run-local `decisions/` dir, never committed) | amended trio |
 | `o-build` | `openspec/<spec_dir>/` (+ figma renders; `REVIEW.md` on a re-pass) | `src/`, `tests/`, updated `tasks.md` | code + tests |
 | `o-review` | `openspec/<spec_dir>/` + code (+ figma renders) | `openspec/<spec_dir>/REVIEW.md` (+ fixes) | fixes + REVIEW.md |
@@ -61,6 +61,14 @@ remote with the requirement doc under `DocSpec/` — the user creates it,
 pushes, then configures the fields on the platform. `figma_token` is only
 read by `o-spec`; leave it blank when the docs have no Figma links — if
 they do, a blank or invalid token hard-blocks (`exit_code: 2`).
+
+Requirement docs may also cite other repos as references ("参考
+\<repo-url\> \<branch\> \<path\>"). `o-spec` shallow-clones them read-only
+into its own working directory, reads the cited code, and distills what
+matters into `design.md` (with repo@SHA + path provenance) — the trio stays
+self-contained and downstream nodes never see the reference repo. An
+unreadable reference is recorded in `assumptions` with lower `confidence`,
+not a block.
 
 ### The interactive variant
 

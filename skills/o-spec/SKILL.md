@@ -127,6 +127,10 @@ Record `doc_type` and, if you made interpretive leaps, `assumptions[]` and a
 `confidence` below 1.0. Pure passthrough of an unambiguous task-list =
 `confidence: 1.0`, empty `assumptions`.
 
+If the doc cites another repository as a reference (repo URL + branch +
+path, e.g. "参考 https://gitlab.../xxx.git main 分支上 apps/.../upload 模块"),
+that is also code you must look at before drafting — see Step 3.6.
+
 Derive a short slug from the requirement (ASCII lowercase, kebab-case, a
 few words). Non-English requirements must be translated to English
 keywords (e.g. 用户信息按钮 → `user-info-button`) so the slug stays ASCII
@@ -192,6 +196,40 @@ Scan the resolved docs for Figma URLs (match
 
 `figma_token` is used only in this step. o-build and o-review never receive
 it; they see the committed renders via the branch (relay, ADR-0001).
+
+### 3.6 Reference repos (only if the doc cites one)
+
+The doc may cite another repo as evidence — e.g. "参考
+https://gitlab.example/saas/frontend/dealer-transformer-pc.git 项目中 main
+分支上 apps/application/src/views/personal-new-car 中上传模块文件参数使用
+规则". Every such citation is an external evidence source: a reference you did
+not open is an assumption, not evidence.
+
+1. **Shallow-clone** it into this node's working directory — never `/tmp`
+   (the same concurrency rules as the main clone), never inside the repo:
+   ```bash
+   mkdir -p "$node_dir/refs"
+   git clone --depth 1 -b <branch> <repo_url> "$node_dir/refs/<name>"
+   ```
+2. **Read** the cited path(s), plus whatever they import that the cited
+   rules depend on. Ground the requirement from what you actually read —
+   parameter names, field conventions, upload rules go into `design.md`
+   **written out**, not as a pointer to the reference repo. The trio must be
+   self-contained: `o-build` and `o-review` never see the reference clone
+   (relay, ADR-0001), so a rule that only exists there is a rule they don't
+   have.
+3. **Record provenance** where you cite it: repo URL + branch + the cloned
+   commit SHA + path (e.g. `dealer-transformer-pc@<sha>:
+   apps/.../personal-new-car/upload.vue`), so a human can audit and re-find
+   the exact code.
+4. **Failure is soft, not a block.** Clone fails (no credentials for that
+   repo, branch or repo gone) → record it in `assumptions[]`
+   ("reference unreadable: <url>"), lower `confidence`, proceed from the doc
+   and the main repo alone. A reference is supporting evidence, not a
+   precondition — an unreachable reference must not kill the run.
+5. **Never commit, never push** anything from `$node_dir/refs/` — it is
+   read-only evidence for this phase. Step 7's `git add openspec/` already
+   guarantees it cannot leak into the phase commit.
 
 ### 4. Synthesize the OpenSpec trio
 
