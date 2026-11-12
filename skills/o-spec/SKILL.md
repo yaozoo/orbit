@@ -282,11 +282,14 @@ Write three files under `$spec_dir/` (the dir was created in Step 3):
   is one `- [ ]` line naming the file + intent. For a task-list input,
   light-validate and adopt. Derive from proposal/design for the other two
   types.
-  **A UI task must name the design frame it implements.** If the task
-  produces or changes markup, styling, layout, or a component's form, cite
-  the frame(s) in the task line itself — `figma/<node-id>.png` — so
-  `o-build` has a hard anchor instead of guessing which frame belongs to
-  which task:
+  **A UI task must name the design frame it implements — only when Step 3.5
+  ran and `$spec_dir/figma/` exists** (the docs carried Figma links). If
+  there are no renders, there is no frame to cite: the task line stays
+  `file + intent`, and never cite or invent a `figma/...` path that is not
+  on the branch. With renders present: if the task produces or changes
+  markup, styling, layout, or a component's form, cite the frame(s) in the
+  task line itself — `figma/<node-id>.png` — so `o-build` has a hard anchor
+  instead of guessing which frame belongs to which task:
 
   ```md
   - [ ] app/components/pages/application/upload/PasswordDialog.vue — 密码弹窗；

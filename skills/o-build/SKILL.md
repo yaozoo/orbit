@@ -119,12 +119,17 @@ Read `$spec_dir/tasks.md`. Parse every `- [ ]` line into a task
 (`file` + `intent`). `tasks_total` = the count. If `$spec_dir/tasks.md` has zero
 tasks → `exit_code: 2`, `block_reason: tasks_empty`, stop.
 
-**Also parse the frame references.** A task line may cite design frames as
-`figma/<node-id>.png` (o-spec writes them for every UI task). Collect them
-per task — this is the task's **frame list**, and it is the authoritative
-mapping from task to design. Build a reverse index too: frame → tasks.
+**Also parse the frame references — but only if `$spec_dir/figma/` exists.**
+(No figma dir means the requirement carried no design renders: skip this
+whole block, tasks stay `file` + `intent`, and UI work is judged on code
+conventions alone — nothing here may block.) With renders present, a task
+line may cite design frames as `figma/<node-id>.png` (o-spec writes them
+for every UI task). Collect them per task — this is the task's **frame
+list**, and it is the authoritative mapping from task to design. Build a
+reverse index too: frame → tasks.
 
-Then `ls -la $spec_dir/figma/` and check the anchors:
+Then `ls -la $spec_dir/figma/` and check the anchors (only meaningful when
+the dir exists — with no figma dir, none of the three checks below applies):
 
 - Every frame a task cites must exist → a cited-but-missing frame is a
   broken spec: `exit_code: 2`,
