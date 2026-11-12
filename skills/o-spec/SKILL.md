@@ -275,6 +275,15 @@ Write three files under `$spec_dir/` (the dir was created in Step 3):
   proposed change. For a vague-requirement, derive this from the codebase +
   the doc. For a detailed-change, adopt the doc's intent. For a task-list,
   write a minimal proposal that frames the tasks.
+  **The proposal must end with a `## 假设与取舍` section mirroring
+  `assumptions[]`** — every assumption you record in the output field also
+  appears here, one line each, in the shape "- <the judgment call>: <the
+  evidence that drove it> (e.g. QA says 6 examples, frame 1182-71014 shows
+  5 → implementing 5)". The output field feeds the mission result card;
+  this section is what `o-spec-clarify` reads — without it, every judgment
+  call you silently made becomes a decision the human is never asked
+  about. Writing assumptions only into the output field is a defect:
+  the gate is blind to them.
 - `$spec_dir/design.md` — how. Approach, trade-offs, and the req→file map
   from Step 3 (each requirement → the file(s)/module(s) it touches). Skip
   the map for a task-list that already carries design.

@@ -170,6 +170,21 @@ Read the trio, the requirement doc(s) (`doc_url` is not an input to this node
 — read the spec dir's proposal for the requirement text), and the codebase
 regions the spec touches.
 
+**Start with the proposal's `## 假设与取舍` section — it is your primary
+candidate list.** o-spec records every judgment call it made there; each
+line is a point where the spec committed without the human's agreement.
+Triage every line:
+
+- evidence forced one side (a QA answer, a frame, an API contract) →
+  not a question; leave it settled.
+- two defensible answers existed and neither side was forced → **raise it
+  as a decision item** (options = the defensible sides, recommendation =
+  the side o-spec chose, evidence = what it cited).
+
+If the section is missing from the proposal, the spec is defective — the
+gate is blind to o-spec's judgment calls. Note that in the sheet's stray
+preamble, then fall back to deriving ambiguities yourself as before.
+
 You are looking for **one kind of thing**: a point where the spec must commit
 to a behaviour or a value, and the available evidence leaves more than one
 defensible answer. Typical shapes:
