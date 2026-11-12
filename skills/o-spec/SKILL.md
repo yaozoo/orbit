@@ -282,6 +282,29 @@ Write three files under `$spec_dir/` (the dir was created in Step 3):
   is one `- [ ]` line naming the file + intent. For a task-list input,
   light-validate and adopt. Derive from proposal/design for the other two
   types.
+  **A UI task must name the design frame it implements.** If the task
+  produces or changes markup, styling, layout, or a component's form, cite
+  the frame(s) in the task line itself — `figma/<node-id>.png` — so
+  `o-build` has a hard anchor instead of guessing which frame belongs to
+  which task:
+
+  ```md
+  - [ ] app/components/pages/application/upload/PasswordDialog.vue — 密码弹窗；
+        对齐 figma/907-752.png（底部 Sheet，非居中弹窗）
+  - [ ] app/pages/application/index.vue — 自主进件流程页；参考 figma/905-237.png
+        （登录）、figma/907-612.png（槽位）
+  ```
+
+  Cite **every** frame the task covers — a screen is often several frames
+  (one per state: default / loading / error / success), and each is a
+  separate frame file. When the requirement covers a whole screen, list
+  that screen's frames; when it covers one component, list that
+  component's frame. A UI task with no frame reference is an unfinished
+  task: `o-build` cannot implement what it cannot see, and will silently
+  substitute its own idea of the layout.
+
+  Non-UI tasks (API layer, stores, middleware, config, scripts) carry no
+  frame reference — a frame reference on them is noise.
 
 Do NOT mutate anything outside `openspec/`. This phase writes docs only.
 
@@ -300,6 +323,15 @@ catches whole-bullet gaps.
   ambiguous or out of scope → `exit_code: 2`,
   `block_reason: requirement_uncovered: <requirement>`, stop. Do not let
   an unaddressed requirement silently flow to `o-build`.
+
+**Frame-reference check (only when `$spec_dir/figma/` exists).** Every task
+in `tasks.md` that touches UI must cite at least one `figma/<node-id>.png`,
+and every cited frame file must actually exist in `$spec_dir/figma/`. A task
+citing a frame that does not exist is a broken anchor — fix it to a real
+frame or drop the citation and record the gap in `assumptions[]`; do not
+invent a node-id. This check exists because an uncited UI task becomes an
+unimplemented UI task: `o-build` cannot open a frame it was never told
+about.
 
 Only proceed to commit when every requirement has a 落点.
 

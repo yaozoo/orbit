@@ -119,6 +119,27 @@ Read `$spec_dir/tasks.md`. Parse every `- [ ]` line into a task
 (`file` + `intent`). `tasks_total` = the count. If `$spec_dir/tasks.md` has zero
 tasks → `exit_code: 2`, `block_reason: tasks_empty`, stop.
 
+**Also parse the frame references.** A task line may cite design frames as
+`figma/<node-id>.png` (o-spec writes them for every UI task). Collect them
+per task — this is the task's **frame list**, and it is the authoritative
+mapping from task to design. Build a reverse index too: frame → tasks.
+
+Then `ls -la $spec_dir/figma/` and check the anchors:
+
+- Every frame a task cites must exist → a cited-but-missing frame is a
+  broken spec: `exit_code: 2`,
+  `block_reason: spec_artifacts_missing: tasks.md cites <frame> but it is not in <spec_dir>/figma/`,
+  stop. Do not implement against a frame you cannot open.
+- A UI task (one that touches markup, styling, layout, or a component's
+  form) with **no** frame reference → it is not implementable as specified.
+  Do not guess the frame from the file name and do not skip the task:
+  `exit_code: 2`,
+  `block_reason: tasks_missing_frame_ref: <task file> has no figma/<node-id>.png reference`,
+  stop. A task the design never pointed at is a task whose layout would be
+  invented.
+- Non-UI tasks (API layer, stores, middleware, config, scripts) carry no
+  frame reference — that is correct, not a gap.
+
 ### 3.5 Consume review feedback (only if REVIEW.md present)
 
 If `$spec_dir/REVIEW.md` exists, a prior `o-review` pass ran and wrote
@@ -153,15 +174,16 @@ For each task, in order:
      block (see Step 5).
    - Task touches UI and `$spec_dir/figma/` exists → **hard precondition:
      a frame you have not opened is a frame you have not implemented.**
-     Start by `ls`-ing `$spec_dir/figma/` and `read_file`-ing every PNG the
-     phase's UI tasks touch — and when tasks reference a *screen* (login,
-     no-order, success, upload …), open **every frame of that screen**, not
-     just the first one you find. The paired `<n>.json` is read alongside
-     for verbatim text and colour values. Writing a component whose design
-     frame was never opened is the most common fidelity failure — treat it
-     as an unfinished task, not a style choice. o-build has no Figma token
-     and never calls the API — it only consumes what o-spec already fetched
-     onto the branch.
+     Open **this task's frames** — the ones Step 3 parsed from its
+     `figma/<node-id>.png` references — with `read_file` (multimodal: you
+     see the image). Do not browse the frame directory and pick the frames
+     that look relevant; the task's frame list is the mapping, and a frame
+     nobody named is a frame you will silently redesign. The paired
+     `<n>.json` is read alongside for verbatim text and colour values.
+     Writing a component whose design frame was never opened is the most
+     common fidelity failure — treat it as an unfinished task, not a style
+     choice. o-build has no Figma token and never calls the API — it only
+     consumes what o-spec already fetched onto the branch.
      **UI fidelity is a first-class requirement, not a nice-to-have — the
      render is the source of truth for FORM, not just content.** Before
      marking any UI task done, re-open the PNG and check your
