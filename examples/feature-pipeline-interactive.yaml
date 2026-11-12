@@ -5,7 +5,7 @@
 # "证据答不了、必须人拍板"的歧义做成选择题清单，人在审批面板里答，答复回灌到
 # spec 目录后才放行 o-build。详见 docs/adr/0002-interactive-clarification-via-human-gate.md。
 #
-# ⚠️ 轮次上限由脚本兜底（max_rounds=2），不由平台兜底：平台不限制人反复 reject/amend
+# ⚠️ 轮次上限由脚本兜底（max_rounds=3），不由平台兜底：平台不限制人反复 reject/amend
 #    的次数（审批循环不消耗 max_attempts 且无上限）。max_approval_timeouts 只管
 #    "人沉默"这一种情况。轮次按"新答复"计数：amend 每次计一轮；无反馈的重跑
 #    （平台 retry、无 reason 的 reject）不消耗预算。
@@ -17,7 +17,7 @@ description: |
   从 GitLab 仓库 + 指定分支 + 需求文档 (DocSpec/ 下文件或文件夹) 自动产出
   OpenSpec trio → **把证据答不了的歧义做成选择题交人拍板**（人没答的项自动取
   推荐）→ TDD 实施 → 终审+自动修复, push 回指定分支. 节点间通过 **远程分支
-  接力** (每节点 clone → 工作 → commit → push); 最多两轮澄清.
+  接力** (每节点 clone → 工作 → commit → push); 最多三轮澄清.
 
 inputs:
   gitlab_url:
@@ -76,7 +76,7 @@ nodes:
     model: deepseek-v4.1-flash-1017
 
   # 人工澄清闸：节点跑完 → output 被扣留 → 等人 approve/reject/amend。
-  # amend 的 feedback 会被注入本节点上下文并重跑本节点（最多两轮，脚本兜底）。
+  # amend 的 feedback 会被注入本节点上下文并重跑本节点（最多三轮，脚本兜底）。
   - id: clarify
     plugin: o-spec-clarify
     execution_timeout: 1800
@@ -88,7 +88,7 @@ nodes:
     approval_criteria: |
       待你决策清单：每项是证据答不了、必须人拍板的点。
       审阅方式：看 output 的 sheet_markdown；点 approve = 全部采纳推荐；
-      点 amend 并在 feedback 写 "D1=A, D2=自定:..., D3=暂缓" 只改指定项（每次消耗一轮澄清，共两轮）；
+      点 amend 并在 feedback 写 "D1=A, D2=自定:..., D3=暂缓" 只改指定项（每次消耗一轮澄清，共三轮）；
       点 reject = 重跑本节点（reason 作为新反馈时同样计一轮），慎用。
       没提到的项自动按推荐执行，不会阻塞下游。
     approval_timeout: 86400

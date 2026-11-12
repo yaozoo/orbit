@@ -67,7 +67,7 @@ output:
   round:
     type: int
     required: true
-    description: "Clarification round: 1 = first pass, 2 = the last allowed pass."
+    description: "Clarification round: 1 = first pass, 3 = the last allowed pass."
   round_exhausted:
     type: bool
     required: true
@@ -283,7 +283,7 @@ context to a **different** name — `decision_context.json`:
   "decisions_dir": "<absolute path to this node's own decisions dir — see below>",
   "decisions": [ ...the items from Step 4... ],
   "approval_feedback": "<the _approval_feedback value read above, verbatim; omit the key if absent>",
-  "max_rounds": 2
+  "max_rounds": 3
 }
 ```
 
@@ -302,7 +302,7 @@ mkdir -p "$decisions_dir"
 working directory is what the platform's first instruction tells you; it
 names the plugin directory as a sibling path.)
 
-`max_rounds` is 2 — the budget the mission allows.
+`max_rounds` is 3 — the budget the mission allows.
 
 Then run the script with the **plugin directory the platform gave you**. The
 platform's first instruction names it (it is the directory holding this
@@ -392,13 +392,13 @@ git push origin <branch>
 
 ## Rounds
 
-The mission allows at most **two** clarification rounds. A round advances only
+The mission allows at most **three** clarification rounds. A round advances only
 when the human sends **new feedback text** — an amend always does; a reject
 does only if the platform injects its reason as feedback (the manual is
 ambiguous on this). A re-run with unchanged or empty feedback — an idempotent
 re-run, a platform retry, a reason-less reject — does **not** consume a round.
 The script tracks which round it is (`round` in `decision_output.json`) and
-**refuses to run a third round** (`max_rounds: 2`).
+**refuses to run a fourth round** (`max_rounds: 3`).
 
 The round budget is enforced by the script, not by the platform. The platform
 does not bound the number of amends: the manual is explicit that the

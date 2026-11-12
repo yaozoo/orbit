@@ -84,7 +84,7 @@ surfaced as a clarification item — never a guessed URL.
 decision sheet in the approval panel. The human answers with **amend** and
 feedback like `D1=A, D2=自定:..., D3=暂缓`; items not mentioned fall back to
 their recommended option, so approving without answering is a valid (if
-unreviewed) outcome. At most **two** clarification rounds — the plugin's
+unreviewed) outcome. At most **three** clarification rounds — the plugin's
 script enforces the budget, because the platform does not bound how often a
 human may amend.
 

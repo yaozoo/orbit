@@ -208,26 +208,28 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         spec = Path(td) / 'spec'
         spec.mkdir()
-        run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')]})          # round 1
+        run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')],
+                                'max_rounds': 2})                                   # round 1
         p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')],
-                                'approval_feedback': 'D1=B'})                       # round 2
+                                'approval_feedback': 'D1=B', 'max_rounds': 2})      # round 2
         check('第二轮成功', p.returncode == 0, p.stderr)
         check('round == 2', out.get('round') == 2, str(out.get('round')))
         check('round_exhausted == True', out.get('round_exhausted') is True,
               str(out.get('round_exhausted')))
         # 同一份答复重跑 → 不进位；无反馈重跑（平台 retry / 无 reason 的 reject）→ 不进位
         p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')],
-                                'approval_feedback': 'D1=B'})
+                                'approval_feedback': 'D1=B', 'max_rounds': 2})
         check('同答复重跑不进位', p.returncode == 0 and out.get('round') == 2,
               p.stdout + p.stderr)
-        p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')]})
+        p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')],
+                                'max_rounds': 2})
         check('无反馈重跑不进位且保留人答复',
               p.returncode == 0 and out.get('round') == 2
               and out['items'][0]['chosen_key'] == 'B', p.stdout + p.stderr)
         state_path = Path(out['decisions_dir']) / 'decisions.json'
         state_before = state_path.read_text(encoding='utf-8')
         p, out, _ = run_script({'spec_dir': str(spec), 'decisions': [item(key='d1')],
-                                'approval_feedback': 'D1=A'})                       # round 3 → 拒
+                                'approval_feedback': 'D1=A', 'max_rounds': 2})      # round 3 → 拒
         check('第三轮 exit 1', p.returncode == 1, p.stdout + p.stderr)
         check('第三轮提示轮次耗尽', '轮次已耗尽' in p.stderr, p.stderr)
         check('第三轮未改状态文件',
@@ -309,15 +311,15 @@ def main():
               str(out.get('spec_dir')))
         # 第二轮：状态在节点目录，轮次闸仍然生效
         p, out2, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
-                                 'decisions': [item(key='d1')],
+                                 'decisions': [item(key='d1')], 'max_rounds': 2,
                                  'approval_feedback': 'D1=B'})
         check('第二轮 round == 2', out2.get('round') == 2, str(out2.get('round')))
         p, out3, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
-                                 'decisions': [item(key='d1')]})
+                                 'decisions': [item(key='d1')], 'max_rounds': 2})
         check('无反馈重跑不进位（仍第 2 轮）',
               p.returncode == 0 and out3.get('round') == 2, p.stdout + p.stderr)
         p, out4, _ = run_script({'spec_dir': str(spec), 'decisions_dir': str(ddir),
-                                 'decisions': [item(key='d1')],
+                                 'decisions': [item(key='d1')], 'max_rounds': 2,
                                  'approval_feedback': 'D1=A'})
         check('新答复第三轮被拒', p.returncode == 1, p.stdout + p.stderr)
 

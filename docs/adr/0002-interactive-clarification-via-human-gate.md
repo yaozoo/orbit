@@ -36,7 +36,7 @@ The human answers by amending: `D1=A, D2=自定:..., D3=暂缓`. Items the human
 does not mention fall back to their recommended option. Deferred items are
 recorded as open and never re-trigger a round.
 
-The pipeline allows **at most two clarification rounds**. The platform does
+The pipeline allows **at most three clarification rounds** (raised from two once round 1 began carrying the full assumption list: answers fold back and surface follow-ups that need room to converge). The platform does
 not bound how often a human may reject or amend (the approval loop is
 unbounded and does not consume `max_attempts`; `max_approval_timeouts`
 bounds only human silence), so the bound is enforced by the plugin's own

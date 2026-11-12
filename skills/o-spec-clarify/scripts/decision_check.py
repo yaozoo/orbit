@@ -13,7 +13,7 @@
     "decisions": [ {id?, key, question, options, recommendation_key,
                     recommendation_reason, evidence, impact} ],   # LLM 挑刺产出，可空
     "approval_feedback": "D1=A, D2=自定:xxx, D3=暂缓",          # 可空（上下文 _approval_feedback）
-    "max_rounds": 2                                              # 可选，澄清轮次硬上限（1..5，默认 2）
+    "max_rounds": 3                                              # 可选，澄清轮次硬上限（1..5，默认 3）
   }
   → 落 <decisions_dir>/{decisions.json, decisions.md}，
     并在 ctx 同目录写 decision_output.json（decision_sheet_path / decisions_dir /
@@ -33,7 +33,7 @@
   未提到的项        自动取 recommended option（decided_by=recommended）
 
 轮次闸：平台不限制"人反复 reject/amend"的次数（审批循环不消耗 max_attempts
-且没有上限），所以"最多两轮"必须由本脚本兜底。轮次按**新答复**计数：feedback
+且没有上限），所以"最多三轮"必须由本脚本兜底。轮次按**新答复**计数：feedback
 非空且与上一轮不同才进位；同一份答复重跑、或无反馈的重跑（平台 retry、无
 reason 的 reject）不消耗预算。超限（第 max_rounds+1 轮）exit 1 且不写任何文件。
 
@@ -53,7 +53,7 @@ DEFER_TEXT = '暂缓：未定论，下游按推荐实现并保留风险登记'
 # （人答 "D1=待查" 时意思是"我选那个待查选项"），与"这项我不答"语义冲突。
 # 这里用「暂缓」，与选项 label 无歧义。
 DEFER_KEYWORD = '暂缓'
-MAX_ROUNDS = 2
+MAX_ROUNDS = 3
 # impact 三档；清单按此降序**展示**（编号跨轮稳定，不受排序影响）。
 IMPACT_LEVELS = ('high', 'medium', 'low')
 IMPACT_ORDER = {'high': 0, 'medium': 1, 'low': 2}
@@ -267,7 +267,7 @@ def run(ctx):
     mr = mr if isinstance(mr, int) and not isinstance(mr, bool) and 1 <= mr <= 5 else None
     # 轮次闸：状态文件已记到第 N 轮 → 本次是第 N+1 轮；超过 max_rounds 就拒。
     # 平台不限制"人反复 amend"的次数（审批循环不消耗 max_attempts 且无上限），
-    # 所以这个闸是"最多两轮"的唯一强制点。
+    # 所以这个闸是"最多三轮"的唯一强制点。
     prev_round = 0
     prev_max = None
     prev_fingerprint = None
